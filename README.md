@@ -15,14 +15,17 @@ Deferred Apps creates lightweight wrapper scripts that look like installed appli
 - **Proper icons** — Automatically resolves icons from Papirus theme
 - **Auto-detection** — Detects executable names from nixpkgs metadata
 - **Security-aware** — Only unfree packages use `--impure`, free packages stay pure
+- **NixOS & Home Manager** — Works with both system-wide and per-user configurations
 
 ## Quick Start
+
+### NixOS
 
 Add to your `flake.nix`:
 
 ```nix
 {
-  inputs.deferred-apps.url = "github:WitteShadovv/deferred-apps/v0.1.1";
+  inputs.deferred-apps.url = "github:WitteShadovv/deferred-apps";
 
   outputs = { nixpkgs, deferred-apps, ... }: {
     nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
@@ -42,6 +45,59 @@ Add to your `flake.nix`:
 ```
 
 Run `nixos-rebuild switch` and the apps appear in your launcher.
+
+### Home Manager
+
+#### Standalone Home Manager
+
+```nix
+{
+  inputs.deferred-apps.url = "github:WitteShadovv/deferred-apps";
+
+  outputs = { home-manager, deferred-apps, ... }: {
+    homeConfigurations.myuser = home-manager.lib.homeManagerConfiguration {
+      modules = [
+        deferred-apps.homeManagerModules.default
+        {
+          programs.deferredApps = {
+            enable = true;
+            apps = [ "spotify" "discord" "obs-studio" ];
+            allowUnfree = true;
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+#### Home Manager as NixOS Module
+
+```nix
+{
+  inputs.deferred-apps.url = "github:WitteShadovv/deferred-apps";
+
+  outputs = { nixpkgs, home-manager, deferred-apps, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [
+        home-manager.nixosModules.home-manager
+        {
+          home-manager.users.myuser = {
+            imports = [ deferred-apps.homeManagerModules.default ];
+            programs.deferredApps = {
+              enable = true;
+              apps = [ "spotify" "discord" "obs-studio" ];
+              allowUnfree = true;
+            };
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+Run `home-manager switch` (standalone) or `nixos-rebuild switch` (NixOS module) and the apps appear in your launcher.
 
 ## How It Works
 
@@ -70,7 +126,7 @@ Deferred Apps uses a **hybrid security approach**:
 By default, `flakeRef = "nixpkgs"` uses your system's flake registry, which typically points to the nixpkgs version from your system flake. For reproducibility, pin to a specific nixpkgs:
 
 ```nix
-programs.deferredApps.flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
+programs.deferredApps.flakeRef = "github:NixOS/nixpkgs/nixos-25.05";
 ```
 
 ## Garbage Collection
@@ -120,7 +176,7 @@ programs.deferredApps = {
   allowUnfree = true;
   
   # Pin to a specific nixpkgs
-  flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
+  flakeRef = "github:NixOS/nixpkgs/nixos-25.05";
   
   # Custom icon theme (optional)
   iconTheme = {
@@ -170,14 +226,31 @@ environment.systemPackages = [
 
 ## Installation Without Flakes
 
+### NixOS
+
 ```nix
 let
   deferred-apps = import (fetchTarball {
-    url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.1.1.tar.gz";
-    sha256 = "0qf462jq2vsaqshw1v7kgg62lsylzlvzdg523rdnqxvmnf2v2l4k";
+    url = "https://github.com/WitteShadovv/deferred-apps/archive/main.tar.gz";
+    # sha256 = "..."; # Add for reproducibility
   });
 in {
   imports = [ deferred-apps.nixosModules.default ];
+  programs.deferredApps.enable = true;
+  programs.deferredApps.apps = [ "hello" ];
+}
+```
+
+### Home Manager
+
+```nix
+let
+  deferred-apps = import (fetchTarball {
+    url = "https://github.com/WitteShadovv/deferred-apps/archive/main.tar.gz";
+    # sha256 = "..."; # Add for reproducibility
+  });
+in {
+  imports = [ deferred-apps.homeManagerModules.default ];
   programs.deferredApps.enable = true;
   programs.deferredApps.apps = [ "hello" ];
 }
@@ -202,6 +275,7 @@ in {
 | Output | Description |
 |--------|-------------|
 | `nixosModules.default` | NixOS module for `programs.deferredApps` |
+| `homeManagerModules.default` | Home Manager module for `programs.deferredApps` |
 | `overlays.default` | Adds `pkgs.deferredApps` library |
 | `lib.<system>` | Direct library access |
 
@@ -219,9 +293,12 @@ Only if Nix has already cached the package from a previous run.
 
 Unfree packages require `NIXPKGS_ALLOW_UNFREE=1` at Nix evaluation time, which requires `--impure` mode. This is a Nix limitation, not ours. Free packages use pure mode for better security.
 
-**Q: Home Manager support?**
+**Q: Should I use the NixOS module or Home Manager module?**
 
-Not yet. For now, use the NixOS module or overlay.
+- Use **NixOS module** if you want deferred apps available system-wide for all users
+- Use **Home Manager module** if you want per-user configuration or don't have root access
+
+Both modules have identical options and behavior.
 
 **Q: My downloaded package disappeared after `nix-collect-garbage`?**
 
@@ -231,6 +308,7 @@ This is expected by default. Enable `gcRoot = true` to protect downloaded packag
 
 - [nixpkgs](https://github.com/NixOS/nixpkgs) — Where the packages come from
 - [Papirus Icon Theme](https://github.com/PapirusDevelopmentTeam/papirus-icon-theme) — Default icon source
+- [Home Manager](https://github.com/nix-community/home-manager) — User environment management
 
 ## License
 

@@ -6,14 +6,15 @@
 # Run with: nix flake check
 #
 # Test Categories:
-#   internal  - Internal function tests (capitalize, isPackageUnfree)
-#   library   - mkDeferredApp parameter tests
-#   batch     - mkDeferredApps, mkDeferredAppsFrom, mkDeferredAppsAdvanced
-#   collision - Terminal command collision detection
-#   module    - NixOS module integration tests
-#   nested    - Nested package support (python313Packages.numpy, etc.)
-#   error     - Error case validation
-#   compat    - default.nix compatibility tests (structure only, see limitations)
+#   internal     - Internal function tests (capitalize, isPackageUnfree)
+#   library      - mkDeferredApp parameter tests
+#   batch        - mkDeferredApps, mkDeferredAppsFrom, mkDeferredAppsAdvanced
+#   collision    - Terminal command collision detection
+#   module       - NixOS module integration tests
+#   home-manager - Home Manager module integration tests
+#   nested       - Nested package support (python313Packages.numpy, etc.)
+#   error        - Error case validation
+#   compat       - default.nix compatibility tests (structure only, see limitations)
 #
 # =============================================================================
 # TESTING LIMITATIONS
@@ -44,6 +45,11 @@
 #    Testing actual unfree packages would require NIXPKGS_ALLOW_UNFREE=1
 #    We test the detection logic, but not the actual --impure invocation.
 #
+# 5. HOME MANAGER ACTIVATION
+#    The Home Manager module tests verify package generation but not
+#    actual home activation (which requires a full home-manager setup).
+#    Test manually: Use the module in a real Home Manager configuration.
+#
 #
 {
   pkgs,
@@ -69,6 +75,7 @@ let
   batchTests = import ./batch.nix { inherit pkgs helpers; };
   collisionTests = import ./collision.nix { inherit lib helpers; };
   moduleTests = import ./module.nix { inherit pkgs lib helpers; };
+  homeManagerTests = import ./home-manager.nix { inherit pkgs lib helpers; };
   nestedTests = import ./nested.nix { inherit pkgs lib helpers; };
   errorTests = import ./error.nix { inherit helpers; };
   compatTests = import ./compat.nix { inherit pkgs; };

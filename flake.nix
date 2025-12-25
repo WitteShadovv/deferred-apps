@@ -32,7 +32,7 @@
       # =======================================================================
       # Usage in flake-based NixOS configuration:
       #
-      #   inputs.deferred-apps.url = "github:your-username/deferred-apps";
+      #   inputs.deferred-apps.url = "github:WitteShadovv/deferred-apps";
       #
       #   nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
       #     modules = [
@@ -47,8 +47,33 @@
       #   };
       #
       nixosModules = {
-        deferredApps = ./module.nix;
+        deferredApps = ./modules/nixos.nix;
         default = self.nixosModules.deferredApps;
+      };
+
+      # =======================================================================
+      # Home Manager Module
+      # =======================================================================
+      # Usage in flake-based Home Manager configuration:
+      #
+      #   inputs.deferred-apps.url = "github:WitteShadovv/deferred-apps";
+      #
+      #   homeConfigurations.myuser = home-manager.lib.homeManagerConfiguration {
+      #     modules = [
+      #       deferred-apps.homeManagerModules.default
+      #       {
+      #         programs.deferredApps = {
+      #           enable = true;
+      #           apps = [ "spotify" "discord" "obs-studio" ];
+      #           allowUnfree = true;
+      #         };
+      #       }
+      #     ];
+      #   };
+      #
+      homeManagerModules = {
+        deferredApps = ./modules/home-manager.nix;
+        default = self.homeManagerModules.deferredApps;
       };
 
       # =======================================================================

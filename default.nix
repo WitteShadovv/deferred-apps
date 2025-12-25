@@ -11,6 +11,9 @@
 #   # Use as NixOS module:
 #   imports = [ deferred-apps.nixosModules.default ];
 #
+#   # Or as Home Manager module:
+#   imports = [ deferred-apps.homeManagerModules.default ];
+#
 #   # Or use the library directly:
 #   deferred-apps.lib.${system}.mkDeferredApp { pname = "spotify"; }
 #
@@ -47,8 +50,13 @@
     {
       # Expose the same interface as the flake
       nixosModules = {
-        deferredApps = ./module.nix;
-        default = ./module.nix;
+        deferredApps = ./modules/nixos.nix;
+        default = ./modules/nixos.nix;
+      };
+
+      homeManagerModules = {
+        deferredApps = ./modules/home-manager.nix;
+        default = ./modules/home-manager.nix;
       };
 
       overlays = {

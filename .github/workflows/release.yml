@@ -47,11 +47,15 @@ jobs:
           nix develop .#ci --command statix check .
           nix develop .#ci --command deadnix --fail -L .
 
-      - name: Build all checks
+      - name: Build key checks
         run: |
-          nix build .#checks.x86_64-linux.lib-mkDeferredApp
+          # Run a representative subset of checks to validate the release
+          # Full test suite runs via 'nix flake check' above
+          nix build .#checks.x86_64-linux.lib-basic
           nix build .#checks.x86_64-linux.lib-mkDeferredApps
-          nix build .#checks.x86_64-linux.module-eval
+          nix build .#checks.x86_64-linux.module-apps-only
+          nix build .#checks.x86_64-linux.nested-basic
+          nix build .#checks.x86_64-linux.integration-full-build
 
   # ===========================================================================
   # Create GitHub release

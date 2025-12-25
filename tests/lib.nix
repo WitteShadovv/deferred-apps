@@ -13,6 +13,10 @@ let
   # Import the library for direct testing
   deferredAppsLib = import ../package.nix { inherit pkgs lib; };
 
+  # ===========================================================================
+  # NixOS Module Testing
+  # ===========================================================================
+
   # Minimal NixOS config boilerplate for module tests
   minimalNixosConfig = {
     boot.loader.grub.enable = false;
@@ -46,6 +50,67 @@ let
       forcedNames = map (pkg: pkg.name or "unnamed") pkgList;
     in
     builtins.seq forcedLength (builtins.seq (builtins.length forcedNames) true);
+
+  # ===========================================================================
+  # Home Manager Module Testing
+  # ===========================================================================
+
+  # Minimal Home Manager config boilerplate for module tests
+  minimalHomeConfig = {
+    home.username = "testuser";
+    home.homeDirectory = "/home/testuser";
+    home.stateVersion = "24.11";
+  };
+
+  # Helper to create a Home Manager evaluation with deferred-apps
+  # Note: This creates a standalone evaluation without the full home-manager
+  # infrastructure. It's sufficient for testing option evaluation and package
+  # generation, but not for testing actual home activation.
+  evalHomeModule =
+    config:
+    lib.evalModules {
+      modules = [
+        self.homeManagerModules.default
+        minimalHomeConfig
+        config
+        # Provide required Home Manager infrastructure stubs
+        (
+          { lib, ... }:
+          {
+            options = {
+              home = {
+                packages = lib.mkOption {
+                  type = lib.types.listOf lib.types.package;
+                  default = [ ];
+                };
+                sessionVariables = lib.mkOption {
+                  type = lib.types.attrsOf lib.types.str;
+                  default = { };
+                };
+                username = lib.mkOption { type = lib.types.str; };
+                homeDirectory = lib.mkOption { type = lib.types.str; };
+                stateVersion = lib.mkOption { type = lib.types.str; };
+              };
+            };
+          }
+        )
+      ];
+      specialArgs = { inherit pkgs lib; };
+    };
+
+  # Helper to force evaluation of home.packages (catches eval-time errors)
+  forceEvalHomePackages =
+    eval:
+    let
+      pkgList = eval.config.home.packages;
+      forcedLength = builtins.length pkgList;
+      forcedNames = map (pkg: pkg.name or "unnamed") pkgList;
+    in
+    builtins.seq forcedLength (builtins.seq (builtins.length forcedNames) true);
+
+  # ===========================================================================
+  # Generic Test Helpers
+  # ===========================================================================
 
   # Helper to create a simple check derivation
   mkCheck =
@@ -111,10 +176,17 @@ let
 in
 {
   inherit
+    # Library
     deferredAppsLib
+    # NixOS helpers
     minimalNixosConfig
     evalModule
     forceEvalPackages
+    # Home Manager helpers
+    minimalHomeConfig
+    evalHomeModule
+    forceEvalHomePackages
+    # Generic helpers
     mkCheck
     mkBuildCheck
     testShouldFail
