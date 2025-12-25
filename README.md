@@ -70,7 +70,7 @@ Deferred Apps uses a **hybrid security approach**:
 By default, `flakeRef = "nixpkgs"` uses your system's flake registry, which typically points to the nixpkgs version from your system flake. For reproducibility, pin to a specific nixpkgs:
 
 ```nix
-programs.deferredApps.flakeRef = "github:NixOS/nixpkgs/nixos-24.11";
+programs.deferredApps.flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
 ```
 
 ## Garbage Collection
@@ -174,18 +174,13 @@ environment.systemPackages = [
 let
   deferred-apps = import (fetchTarball {
     url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.1.0.tar.gz";
-    sha256 = "0000000000000000000000000000000000000000000000000000"; # TODO: update after release
+    sha256 = "13n8skc1jx0zkfg5jy0p867wlh6vri7riyv386102ckankkjc0qy";
   });
 in {
   imports = [ deferred-apps.nixosModules.default ];
   programs.deferredApps.enable = true;
   programs.deferredApps.apps = [ "hello" ];
 }
-```
-
-To get the sha256, run:
-```console
-nix-prefetch-url --unpack https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.1.0.tar.gz
 ```
 
 ## Module Options
