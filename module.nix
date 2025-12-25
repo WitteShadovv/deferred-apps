@@ -42,12 +42,18 @@ in
         "obs-studio"
         "discord"
         "blender"
+        "python313Packages.numpy"
       ];
       description = ''
         List of nixpkgs package names to create deferred launchers for.
 
         These applications appear in your desktop launcher immediately,
         but only download when you first click them.
+
+        Supports nested packages with dot notation:
+        - `python313Packages.numpy`
+        - `haskellPackages.pandoc`
+        - `nodePackages.typescript`
 
         Executable names are automatically detected from package metadata.
         For example, "obs-studio" correctly launches "obs", and "discord"

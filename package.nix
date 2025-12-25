@@ -6,13 +6,17 @@
 # Key feature: Automatically detects executable names from nixpkgs metadata.
 # Example: obs-studio -> "obs", discord -> "discord", vscode -> "code"
 #
+# Nested Packages: Supports dot-notation for nested package sets.
+# Example: python313Packages.numpy, haskellPackages.pandoc, nodePackages.typescript
+#
 # Terminal commands are normalized to lowercase for Unix convention.
 # The actual binary name (from meta.mainProgram) is used internally.
 #
 # Usage:
-#   mkDeferredApp { pname = "spotify"; }                    # Auto-detect exe
-#   mkDeferredApp { pname = "my-app"; exe = "custom"; }     # Manual override
-#   mkDeferredApps [ "spotify" "discord" "obs-studio" ]     # Multiple apps
+#   mkDeferredApp { pname = "spotify"; }                            # Auto-detect exe
+#   mkDeferredApp { pname = "python313Packages.numpy"; }            # Nested package
+#   mkDeferredApp { pname = "my-app"; exe = "custom"; }             # Manual override
+#   mkDeferredApps [ "spotify" "discord" "python313Packages.numpy" ] # Multiple apps
 #
 # Icon Resolution:
 #   Icons are resolved at BUILD TIME (inside derivations) to absolute paths
@@ -47,42 +51,75 @@ let
   # Input Validation
   # ===========================================================================
 
-  # Validate pname to catch common errors early
-  validatePname =
-    pname:
-    assert lib.assertMsg (pname != "") "deferred-apps: pname cannot be empty";
+  # Validate a single segment of pname (between dots)
+  validatePnameSegment =
+    segment: pname:
+    assert lib.assertMsg (segment != "") "deferred-apps: pname segment cannot be empty (got: ${pname})";
     assert lib.assertMsg (
-      !(lib.hasInfix "/" pname)
+      !(lib.hasInfix "/" segment)
     ) "deferred-apps: pname cannot contain '/' (got: ${pname})";
     assert lib.assertMsg (
-      !(lib.hasInfix " " pname)
+      !(lib.hasInfix " " segment)
     ) "deferred-apps: pname cannot contain spaces (got: ${pname})";
+    assert lib.assertMsg (
+      !(lib.hasPrefix "-" segment)
+    ) "deferred-apps: pname segment cannot start with '-' (got: ${pname})";
+    segment;
+
+  # Validate pname to catch common errors early
+  # Supports both simple names ("hello") and nested packages ("python313Packages.numpy")
+  validatePname =
+    pname:
+    let
+      # Split by dots to validate each segment
+      segments = lib.splitString "." pname;
+      # Validate each segment
+      validatedSegments = map (seg: validatePnameSegment seg pname) segments;
+    in
+    assert lib.assertMsg (pname != "") "deferred-apps: pname cannot be empty";
     assert lib.assertMsg (
       !(lib.hasPrefix "." pname)
     ) "deferred-apps: pname cannot start with '.' (got: ${pname})";
     assert lib.assertMsg (
-      !(lib.hasPrefix "-" pname)
-    ) "deferred-apps: pname cannot start with '-' (got: ${pname})";
-    pname;
+      !(lib.hasSuffix "." pname)
+    ) "deferred-apps: pname cannot end with '.' (got: ${pname})";
+    # Force evaluation of all segment validations
+    builtins.seq (builtins.deepSeq validatedSegments validatedSegments) pname;
 
   # ===========================================================================
   # Metadata Extraction (from nixpkgs, no build required)
   # ===========================================================================
 
-  # Get package or null if not found
-  getPackage = pname: pkgs.${pname} or null;
+  # Parse pname into attribute path segments
+  # "python313Packages.numpy" -> ["python313Packages" "numpy"]
+  # "hello" -> ["hello"]
+  parsePname = pname: lib.splitString "." pname;
+
+  # Get package by navigating nested attributes
+  # Supports both simple ("hello") and nested ("python313Packages.numpy") paths
+  getPackage =
+    pname:
+    let
+      path = parsePname pname;
+    in
+    lib.attrByPath path null pkgs;
 
   # Validate package exists with helpful error
   requirePackage =
     pname:
     let
       pkg = getPackage pname;
+      isNested = lib.hasInfix "." pname;
     in
     if pkg == null then
       throw ''
         deferred-apps: Package '${pname}' not found in nixpkgs.
-        Check the spelling or use 'extraApps' with manual configuration.
-        Note: Nested packages (e.g., 'jetbrains.idea-community') are not supported.
+        ${
+          if isNested then
+            "Nested package path checked: ${lib.concatStringsSep " -> " (parsePname pname)}"
+          else
+            "Check the spelling or use 'extraApps' with manual configuration."
+        }
       ''
     else
       pkg;
@@ -153,6 +190,8 @@ let
   #
   # Required:
   #   pname       - nixpkgs attribute name (e.g., "spotify", "obs-studio")
+  #                 Supports nested packages with dot notation:
+  #                 "python313Packages.numpy", "haskellPackages.pandoc", etc.
   #
   # Optional (auto-detected from nixpkgs metadata):
   #   exe                   - executable name (from meta.mainProgram)
@@ -394,6 +433,12 @@ let
 
   # Detect duplicate terminal commands in a list of apps
   # Returns an error message if duplicates found, null otherwise
+  #
+  # Each app in the list can be:
+  #   - A string (package name)
+  #   - An attrset with { pname, exe?, createTerminalCommand? }
+  #
+  # Note: exe can be null (from module submodule defaults), which means "auto-detect"
   detectTerminalCollisions =
     apps:
     let
@@ -403,7 +448,10 @@ let
         app:
         let
           pname = app.pname or app;
-          exe = app.exe or (getMainProgram pname);
+          # Handle both missing exe AND null exe (from module submodule defaults)
+          # app.exe or ... only triggers if exe is missing, not if it's null
+          appExe = app.exe or null;
+          exe = if appExe != null then appExe else getMainProgram pname;
           # Terminal command is lowercase for Unix convention
           terminalCommand = lib.toLower exe;
         in
@@ -422,7 +470,7 @@ let
       null
     else
       let
-        formatDup = cmd: apps: "  '${cmd}' -> ${lib.concatMapStringsSep ", " (a: "'${a.pname}'") apps}";
+        formatDup = cmd: apps': "  '${cmd}' -> ${lib.concatMapStringsSep ", " (a: "'${a.pname}'") apps'}";
         dupList = lib.mapAttrsToList formatDup duplicates;
       in
       ''

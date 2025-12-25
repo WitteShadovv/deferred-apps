@@ -123,10 +123,10 @@ jobs:
           nix develop .#ci --command deadnix --fail -L .
 
   # ===========================================================================
-  # Build check - ensure the library actually produces working derivations
+  # Test suite - comprehensive tests for library, module, and edge cases
   # ===========================================================================
-  build:
-    name: Build test
+  test-suite:
+    name: Test suite
     needs: changes
     if: ${{ needs.changes.outputs.nix == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
@@ -139,19 +139,50 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
-      - name: Build library check
+      - name: List all test cases
         run: |
-          echo "Building deferred-hello to verify library works..."
-          nix build .#checks.x86_64-linux.lib-mkDeferredApp --print-out-paths
+          echo "Available test cases in tests.nix:"
+          nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | sort
 
-      - name: Build multiple apps check
+      - name: Run library tests
         run: |
-          echo "Building multiple deferred apps..."
-          nix build .#checks.x86_64-linux.lib-mkDeferredApps --print-out-paths
+          echo "Running library function tests..."
+          for check in $(nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | grep '^lib-'); do
+            echo "  Building: $check"
+            nix build ".#checks.x86_64-linux.$check" --print-build-logs
+          done
+          echo "✓ All library tests passed"
 
-      - name: Verify build outputs
+      - name: Run collision detection tests
         run: |
-          echo "Verifying build outputs..."
+          echo "Running collision detection tests..."
+          for check in $(nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | grep '^collision-'); do
+            echo "  Building: $check"
+            nix build ".#checks.x86_64-linux.$check" --print-build-logs
+          done
+          echo "✓ All collision detection tests passed"
+
+      - name: Run module tests
+        run: |
+          echo "Running NixOS module tests..."
+          for check in $(nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | grep '^module-'); do
+            echo "  Building: $check"
+            nix build ".#checks.x86_64-linux.$check" --print-build-logs
+          done
+          echo "✓ All module tests passed"
+
+      - name: Run error handling tests
+        run: |
+          echo "Running error handling tests..."
+          for check in $(nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | grep '^error-'); do
+            echo "  Building: $check"
+            nix build ".#checks.x86_64-linux.$check" --print-build-logs
+          done
+          echo "✓ All error handling tests passed"
+
+      - name: Verify build outputs structure
+        run: |
+          echo "Verifying build output structure..."
           result=$(nix build .#checks.x86_64-linux.lib-mkDeferredApp --print-out-paths)
           
           # Check that wrapper script exists (in libexec, not bin)
@@ -172,14 +203,14 @@ jobs:
             exit 1
           fi
           
-          echo "All build outputs verified successfully!"
+          echo "✓ All build outputs verified successfully!"
 
   # ===========================================================================
   # Summary job - provides clear status
   # ===========================================================================
   ci-success:
     name: CI Success
-    needs: [flake-check, formatting, lint, build]
+    needs: [flake-check, formatting, lint, test-suite]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -188,7 +219,7 @@ jobs:
           if [[ "${{ needs.flake-check.result }}" == "failure" ]] || \
              [[ "${{ needs.formatting.result }}" == "failure" ]] || \
              [[ "${{ needs.lint.result }}" == "failure" ]] || \
-             [[ "${{ needs.build.result }}" == "failure" ]]; then
+             [[ "${{ needs.test-suite.result }}" == "failure" ]]; then
             echo "One or more CI jobs failed"
             exit 1
           fi

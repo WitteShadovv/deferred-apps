@@ -127,57 +127,14 @@
         }
       );
 
-      # Basic checks to ensure the module and library evaluate correctly
+      # Comprehensive test suite
+      # Run with: nix flake check
+      # See tests/default.nix for full documentation of test cases
       checks = forAllSystems (
         system:
-        let
+        import ./tests {
           pkgs = nixpkgs.legacyPackages.${system};
-          deferredAppsLib = mkLib pkgs;
-        in
-        {
-          # Check that the library functions work
-          lib-mkDeferredApp = deferredAppsLib.mkDeferredApp { pname = "hello"; };
-
-          lib-mkDeferredApps = pkgs.symlinkJoin {
-            name = "deferred-apps-check";
-            paths = deferredAppsLib.mkDeferredApps [
-              "hello"
-              "cowsay"
-            ];
-          };
-
-          # Check module evaluation succeeds
-          # This validates the module options and library integration work correctly
-          # by forcing evaluation of the config - if it fails, Nix errors immediately
-          module-eval =
-            let
-              # Create a minimal NixOS system just to evaluate the module
-              eval = lib.nixosSystem {
-                inherit system;
-                modules = [
-                  self.nixosModules.default
-                  {
-                    # Minimal required config for NixOS evaluation
-                    boot.loader.grub.enable = false;
-                    fileSystems."/".device = "none";
-                    system.stateVersion = "24.11";
-
-                    programs.deferredApps = {
-                      enable = true;
-                      apps = [ "hello" ];
-                    };
-                  }
-                ];
-              };
-              # Force evaluation of config at Nix evaluation time (not build time)
-              # builtins.seq forces the first argument to be evaluated before returning the second
-              forceEval = builtins.seq eval.config.environment.systemPackages true;
-            in
-            assert forceEval;
-            pkgs.runCommand "module-eval-check" { } ''
-              echo "Module evaluation succeeded"
-              touch $out
-            '';
+          inherit lib self system;
         }
       );
     };
