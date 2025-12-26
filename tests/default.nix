@@ -91,6 +91,7 @@ in
 // batchTests
 // collisionTests
 // moduleTests
+// homeManagerTests
 // nestedTests
 // errorTests
 // compatTests

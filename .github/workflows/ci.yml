@@ -189,6 +189,15 @@ jobs:
           done
           echo "✓ All module tests passed"
 
+      - name: Run Home Manager tests
+        run: |
+          echo "Running Home Manager module tests..."
+          for check in $(nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | grep '^hm-'); do
+            echo "  Building: $check"
+            nix build ".#checks.x86_64-linux.$check" --print-build-logs
+          done
+          echo "✓ All Home Manager tests passed"
+
       - name: Run error handling tests
         run: |
           echo "Running error handling tests..."
