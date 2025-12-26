@@ -200,9 +200,10 @@ let
           inherit pname;
           inherit (opts) exe createTerminalCommand;
         }) extraAppsWithPname)
-        # extraApps with package mode
-        ++ (lib.mapAttrsToList (_: opts: {
+        # extraApps with package mode - use key name as pnameOverride
+        ++ (lib.mapAttrsToList (name: opts: {
           inherit (opts) package exe createTerminalCommand;
+          pnameOverride = name;  # Use key name for collision detection
         }) extraAppsWithPackage);
 
       # Check for terminal command collisions across ALL apps
@@ -247,8 +248,12 @@ let
       ) extraAppsWithPname;
 
       # Build extra apps with package mode (direct package reference)
+      # Note: We pass the key name as pnameOverride so the desktop file uses
+      # the user's chosen name (e.g., "spotify-unstable") instead of the
+      # package's pname (e.g., "spotify"). This prevents collisions when
+      # the same package is referenced with different keys.
       extraAppsListPackage = lib.mapAttrsToList (
-        _: opts:
+        name: opts:
         deferredAppsLib.mkDeferredApp {
           inherit (opts)
             package
@@ -259,6 +264,9 @@ let
             categories
             createTerminalCommand
             ;
+          # Use the key name as pname for desktop file naming
+          # This prevents collisions like apps=["spotify"] + extraApps.spotify-unstable.package
+          pnameOverride = name;
           # gcRoot can still be overridden per-app
           gcRoot = if opts.gcRoot != null then opts.gcRoot else cfg.gcRoot;
           # Note: flakeRef and allowUnfree are ignored in package mode

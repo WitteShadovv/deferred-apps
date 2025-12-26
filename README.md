@@ -260,10 +260,11 @@ in {
 ```
 
 **Key differences from pname mode:**
-- Packages are pinned to exact versions in your `flake.lock`
-- Custom overlays are respected
-- No `allowUnfree` needed (license is checked when you reference the package)
-- Uses `nix-store --realise` at runtime instead of `nix shell`
+- **Version pinning**: Packages are pinned to exact versions in your `flake.lock`
+- **Overlays**: Custom overlays are respected since you're passing the actual package
+- **Unfree handling**: No `allowUnfree` option needed—license is checked at flake evaluation time when you reference the package. If your nixpkgs instance doesn't have `config.allowUnfree = true`, you'll get an error during `nix flake check`, not at runtime.
+- **Runtime mechanism**: Uses `nix-store --realise` instead of `nix shell`
+- **extraApps naming**: When using `extraApps.my-name.package`, the key name (`my-name`) is used for the desktop file, allowing you to have both `apps = ["spotify"]` and `extraApps.spotify-unstable.package` without collision
 
 ### Using the Library Directly
 

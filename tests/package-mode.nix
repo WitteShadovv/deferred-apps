@@ -436,6 +436,44 @@ in
     in
     mkCheck "pkg-module-nixos-mixed" (forceEvalPackages eval);
 
+  # Test: extraApps key name is used for desktop file (not package pname)
+  # This ensures extraApps.my-spotify.package creates my-spotify.desktop, not spotify.desktop
+  pkg-module-extraApps-key-name =
+    let
+      eval = evalModule {
+        programs.deferredApps = {
+          enable = true;
+          extraApps = {
+            my-custom-hello = {
+              package = pkgs.hello;
+            };
+          };
+        };
+      };
+      packages = eval.config.environment.systemPackages;
+      # Find the deferred app package (not icon theme or libnotify)
+      deferredPkg = builtins.head (builtins.filter (p:
+        lib.hasPrefix "deferred-" (p.name or "")
+      ) packages);
+    in
+    # Verify the desktop file uses the key name, not the package pname
+    mkBuildCheck "pkg-module-extraApps-key-name" deferredPkg ''
+      # Should be named after the key "my-custom-hello", not package pname "hello"
+      if [ -f "$drvPath/share/applications/my-custom-hello.desktop" ]; then
+        echo "OK: Desktop file uses key name: my-custom-hello.desktop"
+      else
+        echo "FAIL: Expected my-custom-hello.desktop but found:"
+        ls -la "$drvPath/share/applications/"
+        exit 1
+      fi
+
+      # Verify it's NOT named after the package pname
+      if [ -f "$drvPath/share/applications/hello.desktop" ]; then
+        echo "FAIL: Should NOT create hello.desktop when using extraApps key"
+        exit 1
+      fi
+    '';
+
   # ===========================================================================
   # MODULE INTEGRATION TESTS - Home Manager
   # ===========================================================================

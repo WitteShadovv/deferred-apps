@@ -302,6 +302,7 @@ let
     {
       pname ? null,
       package ? null,
+      pnameOverride ? null, # Override the derived pname (for extraApps with package mode)
       exe ? null,
       desktopName ? null,
       description ? null,
@@ -390,7 +391,15 @@ let
       # ===========================================================================
 
       # Validate pname if provided
-      validatedPname = if hasPname then validatePname pname else pkgPname;
+      # For package mode with pnameOverride, use the override for desktop file naming
+      # This allows extraApps.spotify-unstable.package to create spotify-unstable.desktop
+      validatedPname =
+        if pnameOverride != null then
+          validatePname pnameOverride
+        else if hasPname then
+          validatePname pname
+        else
+          pkgPname;
 
       # Get metadata from nixpkgs lookup
       pnameExe = if exe != null then exe else getMainProgram validatedPname;
@@ -691,7 +700,7 @@ let
   #
   # Each app in the list can be:
   #   - A string (package name)
-  #   - An attrset with { pname?, package?, exe?, createTerminalCommand? }
+  #   - An attrset with { pname?, package?, pnameOverride?, exe?, createTerminalCommand? }
   #
   # Note: exe can be null (from module submodule defaults), which means "auto-detect"
   detectTerminalCollisions =
@@ -704,8 +713,12 @@ let
         let
           # Handle both pname and package modes
           hasPackage = (app.package or null) != null;
+          hasPnameOverride = (app.pnameOverride or null) != null;
+          # pname for display: pnameOverride > pname > derived from package
           pname =
-            if hasPackage then
+            if hasPnameOverride then
+              app.pnameOverride
+            else if hasPackage then
               getPnameFromPackage app.package
             else
               app.pname or app;
@@ -721,7 +734,10 @@ let
           # Terminal command is lowercase for Unix convention
           terminalCommand = lib.toLower exe;
           # Track source for better error messages
-          source = if hasPackage then "package" else "pname";
+          source =
+            if hasPnameOverride then "extraApps (package)"
+            else if hasPackage then "package"
+            else "pname";
         in
         {
           inherit pname terminalCommand source;
