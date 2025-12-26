@@ -208,9 +208,10 @@ let
         # - OR starts with digits followed by version suffix (e.g., "2rc1", "1alpha")
         # Note: Bare numbers like "2048" are NOT considered versions
         parts = lib.splitString "-" name;
-        isVersionPart = p:
-          builtins.match "[0-9]+[.][0-9]+(.*)" p != null ||
-          builtins.match "[0-9]+(rc|alpha|beta|pre|post)[0-9]*" p != null;
+        isVersionPart =
+          p:
+          builtins.match "[0-9]+[.][0-9]+(.*)" p != null
+          || builtins.match "[0-9]+(rc|alpha|beta|pre|post)[0-9]*" p != null;
         nonVersionParts = takeWhile (p: !isVersionPart p) parts;
         result = lib.concatStringsSep "-" nonVersionParts;
       in
@@ -325,10 +326,12 @@ let
       # Validate: must have exactly one of pname or package
       # The `mode` variable is used in the derivation to force assertion evaluation
       mode =
-        assert lib.assertMsg (hasPackage || hasPname)
-          "deferred-apps: Must provide either 'pname' or 'package'";
-        assert lib.assertMsg (!(hasPackage && hasPname))
-          "deferred-apps: Cannot provide both 'pname' and 'package'. Use one or the other.";
+        assert lib.assertMsg (
+          hasPackage || hasPname
+        ) "deferred-apps: Must provide either 'pname' or 'package'";
+        assert lib.assertMsg (
+          !(hasPackage && hasPname)
+        ) "deferred-apps: Cannot provide both 'pname' and 'package'. Use one or the other.";
         if hasPackage then "package" else "pname";
 
       # ===========================================================================
@@ -338,8 +341,13 @@ let
       # Extract metadata from the package derivation
       # Guard these to avoid errors when package is null
       pkgPname = if hasPackage then getPnameFromPackage package else "";
-      pkgExe = if hasPackage then (if exe != null then exe else getMainProgramFromPackage package) else "";
-      pkgDescription = if hasPackage then (if description != null then description else getDescriptionFromPackage package) else "";
+      pkgExe =
+        if hasPackage then (if exe != null then exe else getMainProgramFromPackage package) else "";
+      pkgDescription =
+        if hasPackage then
+          (if description != null then description else getDescriptionFromPackage package)
+        else
+          "";
       pkgIsUnfree = if hasPackage then isDerivationUnfree package else false;
 
       # Capture paths for runtime realization
@@ -377,7 +385,9 @@ let
           # appendContext adds a dependency on the .drv file existing, but with
           # path = true (not allOutputs = true), so outputs won't be built
           builtins.appendContext pkgDrvPathRaw {
-            "${pkgDrvPathRaw}" = { path = true; };
+            "${pkgDrvPathRaw}" = {
+              path = true;
+            };
           }
         else
           "";
@@ -596,7 +606,7 @@ let
           wrapperScript
           desktopItem
           terminalCommand
-          mode  # Force evaluation of mode (triggers validation assertions)
+          mode # Force evaluation of mode (triggers validation assertions)
           ;
         # Mode-specific variables
         isPackageMode = if hasPackage then "1" else "";
@@ -610,8 +620,7 @@ let
         createTerminal = if createTerminalCommand then "1" else "";
         needsImpureStr = if needsImpure then "1" else "0";
         gcRootStr = if gcRoot then "1" else "0";
-        iconName = iconName;
-        iconNameFallback = iconNameFallback;
+        inherit iconName iconNameFallback;
       }
       ''
         # ===========================================================================
@@ -735,9 +744,12 @@ let
           terminalCommand = lib.toLower exe;
           # Track source for better error messages
           source =
-            if hasPnameOverride then "extraApps (package)"
-            else if hasPackage then "package"
-            else "pname";
+            if hasPnameOverride then
+              "extraApps (package)"
+            else if hasPackage then
+              "package"
+            else
+              "pname";
         in
         {
           inherit pname terminalCommand source;

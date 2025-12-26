@@ -203,7 +203,7 @@ let
         # extraApps with package mode - use key name as pnameOverride
         ++ (lib.mapAttrsToList (name: opts: {
           inherit (opts) package exe createTerminalCommand;
-          pnameOverride = name;  # Use key name for collision detection
+          pnameOverride = name; # Use key name for collision detection
         }) extraAppsWithPackage);
 
       # Check for terminal command collisions across ALL apps

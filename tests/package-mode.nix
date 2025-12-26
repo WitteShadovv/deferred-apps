@@ -17,7 +17,11 @@
 # - Only the .drv file is captured via builtins.appendContext with path=true
 # - At runtime, nix-store --realise is used to download/build
 #
-{ pkgs, lib, helpers }:
+{
+  pkgs,
+  lib,
+  helpers,
+}:
 
 let
   inherit (helpers)
@@ -250,7 +254,10 @@ in
     mkBuildCheck "pkg-categories-custom"
       (deferredAppsLib.mkDeferredApp {
         package = pkgs.hello;
-        categories = [ "Development" "IDE" ];
+        categories = [
+          "Development"
+          "IDE"
+        ];
       })
       ''
         categories=$(grep '^Categories=' "$drvPath/share/applications/hello.desktop" | cut -d= -f2)
@@ -326,8 +333,14 @@ in
     name = "check-mkDeferredAppsAdvanced-package";
     paths = deferredAppsLib.mkDeferredAppsAdvanced [
       { package = pkgs.hello; }
-      { package = pkgs.cowsay; createTerminalCommand = false; }
-      { package = pkgs.tree; exe = "custom-tree"; }
+      {
+        package = pkgs.cowsay;
+        createTerminalCommand = false;
+      }
+      {
+        package = pkgs.tree;
+        exe = "custom-tree";
+      }
     ];
     postBuild = ''
       # hello should have terminal command
@@ -353,7 +366,7 @@ in
   pkg-collision-detection = testListShouldFail "pkg-collision-detection" (
     deferredAppsLib.mkDeferredPackages [
       pkgs.hello
-      pkgs.hello  # Duplicate!
+      pkgs.hello # Duplicate!
     ]
   );
 
@@ -361,7 +374,7 @@ in
   pkg-collision-mixed = testListShouldFail "pkg-collision-mixed" (
     deferredAppsLib.mkDeferredAppsAdvanced [
       { pname = "hello"; }
-      { package = pkgs.hello; }  # Same terminal command!
+      { package = pkgs.hello; } # Same terminal command!
     ]
   );
 
@@ -424,8 +437,8 @@ in
       eval = evalModule {
         programs.deferredApps = {
           enable = true;
-          apps = [ "tree" ];  # pname mode
-          packages = [ pkgs.cowsay ];  # package mode
+          apps = [ "tree" ]; # pname mode
+          packages = [ pkgs.cowsay ]; # package mode
           extraApps = {
             my-hello = {
               package = pkgs.hello;
@@ -452,9 +465,9 @@ in
       };
       packages = eval.config.environment.systemPackages;
       # Find the deferred app package (not icon theme or libnotify)
-      deferredPkg = builtins.head (builtins.filter (p:
-        lib.hasPrefix "deferred-" (p.name or "")
-      ) packages);
+      deferredPkg = builtins.head (
+        builtins.filter (p: lib.hasPrefix "deferred-" (p.name or "")) packages
+      );
     in
     # Verify the desktop file uses the key name, not the package pname
     mkBuildCheck "pkg-module-extraApps-key-name" deferredPkg ''
