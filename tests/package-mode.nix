@@ -29,6 +29,7 @@ let
     deferredAppsLib
     mkBuildCheck
     mkCheck
+    mkClosureCheck
     evalModule
     evalHomeModule
     forceEvalPackages
@@ -38,6 +39,52 @@ let
     ;
 in
 {
+  # ===========================================================================
+  # CLOSURE SIZE TESTS
+  # ===========================================================================
+  #
+  # These tests verify that wrapper closures remain minimal.
+  # Critical regressions we're protecting against:
+  # 1. Icon theme (~1GB Papirus) being pulled into closure
+  # 2. Transitive .drv files being pulled via appendContext
+  #
+
+  # Test: Package mode closure should be minimal (no icon theme, no .drv files)
+  pkg-closure-minimal =
+    mkClosureCheck "pkg-closure-minimal" (deferredAppsLib.mkDeferredApp { package = pkgs.hello; })
+      {
+        # Wrapper + its runtime deps should be very few paths
+        # Currently it's just 1 (the wrapper itself)
+        maxPaths = 5;
+        forbiddenPatterns = [
+          "papirus" # Icon theme should NOT be in closure
+          "\\.drv$" # No .drv files should be in closure
+        ];
+      };
+
+  # Test: Package with icon (vlc has icon in Papirus) should still have minimal closure
+  # This specifically tests the icon-copying fix
+  pkg-closure-with-icon =
+    mkClosureCheck "pkg-closure-with-icon" (deferredAppsLib.mkDeferredApp { package = pkgs.vlc; })
+      {
+        maxPaths = 5;
+        forbiddenPatterns = [
+          "papirus" # Icon should be COPIED, not referenced
+          "\\.drv$"
+        ];
+      };
+
+  # Test: Pname mode should also have minimal closure
+  pkg-closure-pname-mode =
+    mkClosureCheck "pkg-closure-pname-mode" (deferredAppsLib.mkDeferredApp { pname = "hello"; })
+      {
+        maxPaths = 5;
+        forbiddenPatterns = [
+          "papirus"
+          "\\.drv$"
+        ];
+      };
+
   # ===========================================================================
   # BASIC PACKAGE MODE FUNCTIONALITY
   # ===========================================================================

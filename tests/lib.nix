@@ -175,6 +175,89 @@ let
     in
     mkCheck name infrastructureValid;
 
+  # ===========================================================================
+  # Closure Size Testing
+  # ===========================================================================
+
+  # Helper to verify a derivation's runtime closure meets expectations.
+  # Uses exportReferencesGraph to analyze closure at build time.
+  #
+  # Arguments:
+  #   name: Test name
+  #   drv: The derivation to check
+  #   checks: An attrset with optional checks:
+  #     - maxPaths: Maximum number of store paths allowed in closure (default: no limit)
+  #     - forbiddenPatterns: List of patterns that must NOT appear in closure paths
+  #     - requiredPatterns: List of patterns that MUST appear in at least one closure path
+  #
+  # Example:
+  #   mkClosureCheck "my-test" myDrv {
+  #     maxPaths = 5;
+  #     forbiddenPatterns = [ "papirus" ".drv$" ];
+  #   }
+  #
+  mkClosureCheck =
+    name: drv: checks:
+    let
+      maxPaths = checks.maxPaths or null;
+      forbiddenPatterns = checks.forbiddenPatterns or [ ];
+      requiredPatterns = checks.requiredPatterns or [ ];
+
+      # Build the check script
+      maxPathsCheck =
+        if maxPaths != null then
+          ''
+            path_count=$(grep "^/nix/store" closure | sort -u | wc -l)
+            if [ "$path_count" -gt ${toString maxPaths} ]; then
+              echo "FAIL: Closure has $path_count paths, expected at most ${toString maxPaths}"
+              echo "Paths in closure:"
+              grep "^/nix/store" closure | sort -u
+              exit 1
+            fi
+            echo "OK: Closure has $path_count paths (max: ${toString maxPaths})"
+          ''
+        else
+          "";
+
+      forbiddenChecks = lib.concatMapStrings (pattern: ''
+        if grep -qE "${pattern}" closure; then
+          echo "FAIL: Closure contains forbidden pattern '${pattern}'"
+          echo "Matching paths:"
+          grep -E "${pattern}" closure || true
+          exit 1
+        fi
+        echo "OK: No paths match forbidden pattern '${pattern}'"
+      '') forbiddenPatterns;
+
+      requiredChecks = lib.concatMapStrings (pattern: ''
+        if ! grep -qE "${pattern}" closure; then
+          echo "FAIL: Closure missing required pattern '${pattern}'"
+          exit 1
+        fi
+        echo "OK: Found required pattern '${pattern}'"
+      '') requiredPatterns;
+
+    in
+    pkgs.runCommand "check-${name}"
+      {
+        exportReferencesGraph = [
+          "closure"
+          drv
+        ];
+      }
+      ''
+        echo "Checking closure for: ${name}"
+        echo ""
+
+        ${maxPathsCheck}
+        ${forbiddenChecks}
+        ${requiredChecks}
+
+        echo ""
+        echo "All closure checks passed!"
+        touch $out
+      '';
+
 in
 {
   inherit
@@ -194,5 +277,7 @@ in
     testShouldFail
     testListShouldFail
     mkCheckValidator
+    # Closure testing
+    mkClosureCheck
     ;
 }
