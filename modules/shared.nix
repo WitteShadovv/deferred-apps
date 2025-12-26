@@ -51,6 +51,28 @@ let
   # Submodule for extraApps configuration
   extraAppModule = lib.types.submodule {
     options = {
+      package = lib.mkOption {
+        type = lib.types.nullOr lib.types.package;
+        default = null;
+        example = lib.literalExpression "pkgs-unstable.spotify";
+        description = ''
+          Direct package derivation to use for this app.
+
+          When provided, the package is used directly instead of looking up
+          by attribute name. This enables:
+          - Using packages from custom nixpkgs instances (e.g., unstable)
+          - Packages with overlays applied
+          - Packages pinned to your flake.lock
+
+          The package is NOT built at system build time. Only the derivation
+          file (.drv) is captured, and the actual package is realized on
+          first launch.
+
+          Note: When `package` is provided, `flakeRef` and `allowUnfree` are
+          ignored since the package source is already determined.
+        '';
+      };
+
       exe = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
@@ -108,6 +130,8 @@ let
           If null (default), uses the global `allowUnfree` option.
           Set to `true` to allow this specific unfree package.
           Set to `false` to require this package to be free.
+
+          Note: This is ignored when `package` is provided.
         '';
       };
 
@@ -134,6 +158,8 @@ let
           instead of nixpkgs.
 
           If null (default), uses the global `flakeRef` option.
+
+          Note: This is ignored when `package` is provided.
         '';
       };
     };
@@ -146,28 +172,43 @@ let
   # Build the list of deferred app packages (shared between NixOS and HM)
   buildDeferredPackages =
     let
-      # Names configured in extraApps (these take precedence)
+      # Names configured in extraApps (these take precedence over apps list)
       extraNames = lib.attrNames cfg.extraApps;
 
       # Filter out apps that have extraApps overrides
       filteredApps = lib.filter (name: !(lib.elem name extraNames)) cfg.apps;
 
+      # Separate extraApps into pname-mode and package-mode entries
+      extraAppsWithPackage = lib.filterAttrs (_: opts: opts.package != null) cfg.extraApps;
+      extraAppsWithPname = lib.filterAttrs (_: opts: opts.package == null) cfg.extraApps;
+
       # Build config list for collision detection
-      # Standard apps default to createTerminalCommand = true
+      # Includes: apps (pname), packages (direct), extraApps (both modes)
       allAppConfigs =
+        # Standard apps (pname mode)
         (map (pname: {
           inherit pname;
           createTerminalCommand = true;
         }) filteredApps)
+        # Global packages list (package mode)
+        ++ (map (package: {
+          inherit package;
+          createTerminalCommand = true;
+        }) cfg.packages)
+        # extraApps with pname mode
         ++ (lib.mapAttrsToList (pname: opts: {
           inherit pname;
           inherit (opts) exe createTerminalCommand;
-        }) cfg.extraApps);
+        }) extraAppsWithPname)
+        # extraApps with package mode
+        ++ (lib.mapAttrsToList (_: opts: {
+          inherit (opts) package exe createTerminalCommand;
+        }) extraAppsWithPackage);
 
       # Check for terminal command collisions across ALL apps
       collision = deferredAppsLib.detectTerminalCollisions allAppConfigs;
 
-      # Build standard apps (auto-detected metadata)
+      # Build standard apps (pname mode, auto-detected metadata)
       standardApps = map (
         pname:
         deferredAppsLib.mkDeferredApp {
@@ -176,8 +217,17 @@ let
         }
       ) filteredApps;
 
-      # Build extra apps (manual configuration)
-      extraAppsList = lib.mapAttrsToList (
+      # Build global packages list (package mode)
+      packageApps = map (
+        package:
+        deferredAppsLib.mkDeferredApp {
+          inherit package;
+          inherit (cfg) gcRoot;
+        }
+      ) cfg.packages;
+
+      # Build extra apps with pname mode (manual configuration)
+      extraAppsListPname = lib.mapAttrsToList (
         pname: opts:
         deferredAppsLib.mkDeferredApp {
           inherit pname;
@@ -194,7 +244,26 @@ let
           allowUnfree = if opts.allowUnfree != null then opts.allowUnfree else cfg.allowUnfree;
           gcRoot = if opts.gcRoot != null then opts.gcRoot else cfg.gcRoot;
         }
-      ) cfg.extraApps;
+      ) extraAppsWithPname;
+
+      # Build extra apps with package mode (direct package reference)
+      extraAppsListPackage = lib.mapAttrsToList (
+        _: opts:
+        deferredAppsLib.mkDeferredApp {
+          inherit (opts)
+            package
+            exe
+            desktopName
+            description
+            icon
+            categories
+            createTerminalCommand
+            ;
+          # gcRoot can still be overridden per-app
+          gcRoot = if opts.gcRoot != null then opts.gcRoot else cfg.gcRoot;
+          # Note: flakeRef and allowUnfree are ignored in package mode
+        }
+      ) extraAppsWithPackage;
 
       # Icon theme package (if enabled)
       iconThemePackages = lib.optional cfg.iconTheme.enable cfg.iconTheme.package;
@@ -203,7 +272,9 @@ let
     # Assert no terminal command collisions before building
     assert lib.assertMsg (collision == null) collision;
     standardApps
-    ++ extraAppsList
+    ++ packageApps
+    ++ extraAppsListPname
+    ++ extraAppsListPackage
     ++ iconThemePackages
     ++ [
       pkgs.libnotify # Required for notifications
@@ -338,6 +409,38 @@ in
       };
     };
 
+    packages = lib.mkOption {
+      type = lib.types.listOf lib.types.package;
+      default = [ ];
+      example = lib.literalExpression ''
+        [
+          pkgs-unstable.spotify
+          myOverlay.discord
+          inputs.some-flake.packages.''${system}.custom-app
+        ]
+      '';
+      description = ''
+        List of package derivations to create deferred launchers for.
+
+        Unlike `apps` (which takes package names and uses `nix shell` at runtime),
+        `packages` takes actual package derivations directly. This enables:
+
+        - **Custom nixpkgs instances**: Use packages from nixpkgs-unstable or
+          other nixpkgs variants with your overlays applied.
+        - **Flake.lock pinning**: Packages are pinned to the exact versions in
+          your flake.lock, ensuring reproducibility.
+        - **Overlays**: Your custom overlays are respected since you're passing
+          the actual package.
+
+        At system build time, only the derivation file (.drv) is captured - the
+        package outputs are NOT built. On first launch, `nix-store --realise` is
+        used to download/build the package.
+
+        Note: `allowUnfree` is not needed for packages passed here, as the
+        license check happens when you reference the package in your flake.
+      '';
+    };
+
     extraApps = lib.mkOption {
       type = lib.types.attrsOf extraAppModule;
       default = { };
@@ -365,6 +468,12 @@ in
           spotify-sandboxed = {
             flakeRef = "/path/to/your/flake";
           };
+
+          # Direct package reference with custom options
+          spotify-unstable = {
+            package = pkgs-unstable.spotify;
+            createTerminalCommand = false;
+          };
         }
       '';
       description = ''
@@ -374,9 +483,12 @@ in
         - Packages not in nixpkgs (use `flakeRef` to specify the source)
         - Overriding auto-detected executable names
         - Custom icons or categories
+        - Direct package references with custom options (use `package`)
 
         If a package appears in both `apps` and `extraApps`, the
         `extraApps` configuration takes precedence.
+
+        When `package` is provided, `flakeRef` and `allowUnfree` are ignored.
       '';
     };
   };

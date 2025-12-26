@@ -5,15 +5,17 @@
 
 **Apps appear in your launcher but only download when first launched.**
 
-Deferred Apps creates lightweight wrapper scripts that look like installed applications but only download the actual package on first use via `nix shell`. Perfect for apps you rarely use but want available, without bloating your system closure.
+Deferred Apps creates lightweight wrapper scripts that look like installed applications but only download the actual package on first use. Perfect for apps you rarely use but want available, without bloating your system closure.
 
 ## Features
 
 - **Instant availability** — Apps appear in your launcher immediately
 - **Zero overhead** — No disk space used until first launch
-- **Always fresh** — Gets the latest version from nixpkgs on each launch
+- **Two modes** — Use package names *or* direct package references
+- **Overlay support** — Use packages from custom nixpkgs instances with your overlays
+- **Flake.lock pinning** — Packages pinned to exact versions from your flake
 - **Proper icons** — Automatically resolves icons from Papirus theme
-- **Auto-detection** — Detects executable names from nixpkgs metadata
+- **Auto-detection** — Detects executable names from package metadata
 - **Security-aware** — Only unfree packages use `--impure`, free packages stay pure
 - **NixOS & Home Manager** — Works with both system-wide and per-user configurations
 
@@ -101,9 +103,29 @@ Run `home-manager switch` (standalone) or `nixos-rebuild switch` (NixOS module) 
 
 ## How It Works
 
+Deferred Apps supports two modes:
+
+### Pname Mode (Package Names)
+
+```
+apps = [ "spotify" "discord" ];
+```
+
 1. **At build time**: Creates tiny wrapper scripts (~1KB) with proper `.desktop` files
-2. **At first launch**: Downloads the actual package via `nix build`
+2. **At first launch**: Downloads the package via `nix shell nixpkgs#spotify`
 3. **Subsequent launches**: Uses the Nix store cache (near-instant)
+
+### Package Mode (Direct References)
+
+```
+packages = [ pkgs-unstable.spotify ];
+```
+
+1. **At build time**: Captures only the `.drv` file (~50KB), NOT the package outputs
+2. **At first launch**: Realizes the derivation via `nix-store --realise`
+3. **Subsequent launches**: Uses the Nix store cache (near-instant)
+
+Package mode is ideal when you need packages from custom nixpkgs instances (with overlays) or want exact version pinning from your `flake.lock`.
 
 > **Note**: By default, downloaded packages may be removed by `nix-collect-garbage`. Enable `gcRoot = true` to prevent this (see [Garbage Collection](#garbage-collection)).
 
@@ -201,6 +223,48 @@ programs.deferredApps = {
 };
 ```
 
+### Package Mode (Overlays & Custom nixpkgs)
+
+Use `packages` when you need packages from custom nixpkgs instances, with overlays applied, or pinned to your `flake.lock`:
+
+```nix
+{ inputs, pkgs, ... }:
+
+let
+  # Example: unstable nixpkgs with your overlays
+  pkgs-unstable = import inputs.nixpkgs-unstable {
+    inherit (pkgs) system;
+    config.allowUnfree = true;
+    overlays = [ myOverlay ];
+  };
+in {
+  programs.deferredApps = {
+    enable = true;
+    
+    # Direct package references - versions pinned to your flake.lock
+    packages = [
+      pkgs-unstable.spotify
+      pkgs-unstable.discord
+      inputs.some-flake.packages.${pkgs.system}.custom-app
+    ];
+    
+    # Can also use package mode in extraApps for custom options
+    extraApps = {
+      my-spotify = {
+        package = pkgs-unstable.spotify;
+        createTerminalCommand = false;  # GUI only
+      };
+    };
+  };
+}
+```
+
+**Key differences from pname mode:**
+- Packages are pinned to exact versions in your `flake.lock`
+- Custom overlays are respected
+- No `allowUnfree` needed (license is checked when you reference the package)
+- Uses `nix-store --realise` at runtime instead of `nix shell`
+
 ### Using the Library Directly
 
 ```nix
@@ -220,6 +284,12 @@ environment.systemPackages = [
     allowUnfree = true;
   })
 ];
+```
+
+For direct package references via library:
+```nix
+environment.systemPackages = 
+  pkgs.deferredApps.mkDeferredPackages [ pkgs-unstable.spotify pkgs-unstable.discord ];
 ```
 
 > **Note**: Library/overlay users should ensure `libnotify` is available for download notifications.
@@ -261,14 +331,18 @@ in {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enable` | bool | `false` | Enable deferred apps |
-| `apps` | list of str | `[]` | Package names to defer |
-| `flakeRef` | str | `"nixpkgs"` | Flake reference for packages |
-| `allowUnfree` | bool | `false` | Allow unfree packages (uses `--impure`) |
+| `apps` | list of str | `[]` | Package names to defer (uses `nix shell` at runtime) |
+| `packages` | list of package | `[]` | Package derivations to defer (uses `nix-store --realise` at runtime) |
+| `flakeRef` | str | `"nixpkgs"` | Flake reference for packages (only for `apps`) |
+| `allowUnfree` | bool | `false` | Allow unfree packages (uses `--impure`, only for `apps`) |
 | `gcRoot` | bool | `false` | Create GC roots to prevent cleanup |
 | `iconTheme.enable` | bool | `true` | Install Papirus icon theme |
 | `iconTheme.package` | package | `pkgs.papirus-icon-theme` | Icon theme package |
 | `iconTheme.name` | str | `"Papirus-Dark"` | Icon theme name |
 | `extraApps` | attrs | `{}` | Apps with custom configuration |
+| `extraApps.<name>.package` | package | `null` | Direct package reference (alternative to pname lookup) |
+| `extraApps.<name>.exe` | str | `null` | Override executable name |
+| `extraApps.<name>.createTerminalCommand` | bool | `true` | Create terminal command symlink |
 
 ## Flake Outputs
 
@@ -278,6 +352,16 @@ in {
 | `homeManagerModules.default` | Home Manager module for `programs.deferredApps` |
 | `overlays.default` | Adds `pkgs.deferredApps` library |
 | `lib.<system>` | Direct library access |
+
+### Library Functions
+
+| Function | Description |
+|----------|-------------|
+| `mkDeferredApp { pname }` | Create a single deferred app by package name |
+| `mkDeferredApp { package }` | Create a single deferred app from a package derivation |
+| `mkDeferredApps [ "pkg1" "pkg2" ]` | Create multiple deferred apps by names |
+| `mkDeferredPackages [ pkg1 pkg2 ]` | Create multiple deferred apps from derivations |
+| `mkDeferredAppsAdvanced [ { pname; exe; ... } ]` | Create multiple apps with full configuration |
 
 ## FAQ
 
@@ -303,6 +387,27 @@ Both modules have identical options and behavior.
 **Q: My downloaded package disappeared after `nix-collect-garbage`?**
 
 This is expected by default. Enable `gcRoot = true` to protect downloaded packages from garbage collection. See [Garbage Collection](#garbage-collection).
+
+**Q: Should I use `apps` or `packages`?**
+
+Use **`apps`** (pname mode) when:
+- You want simple configuration with just package names
+- You're fine with packages from the default nixpkgs in your flake registry
+- You need dynamic evaluation (e.g., "always get the latest from nixpkgs-unstable")
+
+Use **`packages`** (package mode) when:
+- You need packages from custom nixpkgs instances (e.g., with overlays)
+- You want exact version pinning from your `flake.lock`
+- You're already importing a custom nixpkgs for other reasons
+- The package comes from a custom flake output
+
+Both modes work identically at runtime—apps appear in your launcher and download on first launch. The difference is how the package source is specified.
+
+**Q: Does package mode work with multi-output packages?**
+
+Package mode assumes binaries are in `$out/bin/`. For most packages this works fine. For packages where the binary is in a different output (rare), you can:
+1. Use the `exe` option with a custom path
+2. Use pname mode instead (which handles output selection automatically via `nix shell`)
 
 ## See Also
 

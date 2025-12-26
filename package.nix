@@ -1,13 +1,17 @@
 # Deferred Apps - Package Builder
 #
 # Creates lightweight wrappers that appear as installed apps but only
-# download the actual package on first launch via `nix shell`.
+# download the actual package on first launch via `nix shell` or `nix-store --realise`.
 #
 # Key feature: Automatically detects executable names from nixpkgs metadata.
 # Example: obs-studio -> "obs", discord -> "discord", vscode -> "code"
 #
 # Nested Packages: Supports dot-notation for nested package sets.
 # Example: python313Packages.numpy, haskellPackages.pandoc, nodePackages.typescript
+#
+# Direct Package References: Pass actual package derivations instead of names.
+# This enables using packages from custom nixpkgs instances with overlays,
+# or packages pinned to your flake.lock.
 #
 # Terminal commands are normalized to lowercase for Unix convention.
 # The actual binary name (from meta.mainProgram) is used internally.
@@ -16,7 +20,9 @@
 #   mkDeferredApp { pname = "spotify"; }                            # Auto-detect exe
 #   mkDeferredApp { pname = "python313Packages.numpy"; }            # Nested package
 #   mkDeferredApp { pname = "my-app"; exe = "custom"; }             # Manual override
+#   mkDeferredApp { package = pkgs.spotify; }                       # Direct package
 #   mkDeferredApps [ "spotify" "discord" "python313Packages.numpy" ] # Multiple apps
+#   mkDeferredPackages [ pkgs.spotify pkgs.discord ]                # Direct packages
 #
 # Icon Resolution:
 #   Icons are resolved at BUILD TIME (inside derivations) to absolute paths
@@ -152,6 +158,73 @@ let
     else
       hasUnfreeLicense;
 
+  # Check if a direct package derivation is unfree
+  isDerivationUnfree =
+    pkg:
+    let
+      licenses = lib.toList (pkg.meta.license or [ ]);
+      hasUnfreeLicense = lib.any (l: !(l.free or true)) licenses;
+    in
+    hasUnfreeLicense;
+
+  # ===========================================================================
+  # Package Derivation Helpers (for direct package references)
+  # ===========================================================================
+
+  # Helper: takeWhile implementation (not in nixpkgs lib)
+  # Takes elements from a list while predicate is true
+  takeWhile =
+    pred: list:
+    let
+      go =
+        acc: xs:
+        if xs == [ ] then
+          acc
+        else
+          let
+            head = builtins.head xs;
+            tail = builtins.tail xs;
+          in
+          if pred head then go (acc ++ [ head ]) tail else acc;
+    in
+    go [ ] list;
+
+  # Extract pname from a package derivation
+  # Falls back to name parsing if pname is not available
+  #
+  # Handles edge cases:
+  # - Packages with pname attribute (most common)
+  # - Packages where name = "hello-2.12.1" → "hello"
+  # - Packages where name starts with number like "7zip-24.08" → "7zip"
+  # - Packages like "2048-in-terminal-1.0" → "2048-in-terminal"
+  getPnameFromPackage =
+    pkg:
+    pkg.pname or (
+      let
+        name = pkg.name or "unknown";
+        # Split on "-" and take parts that don't look like versions
+        # A version part is one that:
+        # - Contains a dot and starts with digits (e.g., "2.12.1", "24.08")
+        # - OR starts with digits followed by version suffix (e.g., "2rc1", "1alpha")
+        # Note: Bare numbers like "2048" are NOT considered versions
+        parts = lib.splitString "-" name;
+        isVersionPart = p:
+          builtins.match "[0-9]+[.][0-9]+(.*)" p != null ||
+          builtins.match "[0-9]+(rc|alpha|beta|pre|post)[0-9]*" p != null;
+        nonVersionParts = takeWhile (p: !isVersionPart p) parts;
+        result = lib.concatStringsSep "-" nonVersionParts;
+      in
+      # Fallback to full name if no non-version parts found
+      # This handles edge cases like a package named just "1.0" (unlikely but safe)
+      if result == "" then name else result
+    );
+
+  # Extract mainProgram from a package derivation
+  getMainProgramFromPackage = pkg: pkg.meta.mainProgram or (getPnameFromPackage pkg);
+
+  # Extract description from a package derivation
+  getDescriptionFromPackage = pkg: pkg.meta.description or "Application";
+
   # ===========================================================================
   # String Utilities
   # ===========================================================================
@@ -188,20 +261,35 @@ let
 
   # Create a single deferred application
   #
-  # Required:
-  #   pname       - nixpkgs attribute name (e.g., "spotify", "obs-studio")
-  #                 Supports nested packages with dot notation:
-  #                 "python313Packages.numpy", "haskellPackages.pandoc", etc.
+  # Two modes of operation:
   #
-  # Optional (auto-detected from nixpkgs metadata):
+  # MODE 1: By package name (pname)
+  #   Looks up the package in the module's nixpkgs and uses `nix shell` at runtime.
+  #   Best for: Simple cases where you want packages from the default nixpkgs.
+  #
+  #   Required:
+  #     pname       - nixpkgs attribute name (e.g., "spotify", "obs-studio")
+  #                   Supports nested packages with dot notation:
+  #                   "python313Packages.numpy", "haskellPackages.pandoc", etc.
+  #
+  # MODE 2: Direct package reference (package)
+  #   Uses the provided package derivation directly. At runtime, realizes the
+  #   derivation using `nix-store --realise`. The package is NOT built at system
+  #   build time - only the .drv file is captured.
+  #   Best for: Packages from custom nixpkgs instances, overlays, or flake.lock pinning.
+  #
+  #   Required:
+  #     package     - A package derivation (e.g., pkgs-unstable.spotify)
+  #
+  # Optional (auto-detected from package metadata):
   #   exe                   - executable name (from meta.mainProgram)
   #   desktopName           - display name (generated from pname)
   #   description           - app description (from meta.description)
   #   icon                  - icon name or path for desktop entry (auto-resolved from theme)
   #   categories            - freedesktop.org categories (defaults to ["Application"])
-  #   flakeRef              - flake reference for nix shell (defaults to "nixpkgs")
+  #   flakeRef              - flake reference for nix shell (only used with pname, defaults to "nixpkgs")
   #   createTerminalCommand - create terminal command symlink (defaults to true)
-  #   allowUnfree           - allow unfree packages (enables --impure, defaults to false)
+  #   allowUnfree           - allow unfree packages (enables --impure for pname mode, defaults to false)
   #   gcRoot                - create GC root to prevent garbage collection (defaults to false)
   #
   # Icon Resolution:
@@ -212,7 +300,8 @@ let
   #
   mkDeferredApp =
     {
-      pname,
+      pname ? null,
+      package ? null,
       exe ? null,
       desktopName ? null,
       description ? null,
@@ -224,36 +313,122 @@ let
       gcRoot ? false,
     }:
     let
-      # Validate pname first
-      validatedPname = validatePname pname;
+      # ===========================================================================
+      # Mode Detection and Validation
+      # ===========================================================================
 
-      # Resolve with auto-detection fallbacks
-      # finalExe is the actual binary name inside the package (used with nix shell --command)
-      # This must match exactly what the package provides (e.g., "Discord" not "discord")
-      finalExe = if exe != null then exe else getMainProgram validatedPname;
+      # Determine which mode we're in
+      hasPackage = package != null;
+      hasPname = pname != null;
+
+      # Validate: must have exactly one of pname or package
+      # The `mode` variable is used in the derivation to force assertion evaluation
+      mode =
+        assert lib.assertMsg (hasPackage || hasPname)
+          "deferred-apps: Must provide either 'pname' or 'package'";
+        assert lib.assertMsg (!(hasPackage && hasPname))
+          "deferred-apps: Cannot provide both 'pname' and 'package'. Use one or the other.";
+        if hasPackage then "package" else "pname";
+
+      # ===========================================================================
+      # Package Mode: Direct derivation reference
+      # ===========================================================================
+
+      # Extract metadata from the package derivation
+      # Guard these to avoid errors when package is null
+      pkgPname = if hasPackage then getPnameFromPackage package else "";
+      pkgExe = if hasPackage then (if exe != null then exe else getMainProgramFromPackage package) else "";
+      pkgDescription = if hasPackage then (if description != null then description else getDescriptionFromPackage package) else "";
+      pkgIsUnfree = if hasPackage then isDerivationUnfree package else false;
+
+      # Capture paths for runtime realization
+      # We need the .drv file to exist at runtime so nix-store --realise works.
+      #
+      # CRITICAL: We must NOT trigger building the package outputs at system build time.
+      # The challenge is that `package.drvPath` has string context with `allOutputs = true`,
+      # which would cause Nix to build all outputs when used in a derivation.
+      #
+      # Solution: Use `builtins.appendContext` to create a new reference to the .drv file
+      # with `path = true` context instead of `allOutputs = true`. This tells Nix
+      # "I need this path to exist" without implying "build the derivation's outputs".
+      #
+      # Note: builtins.storePath would also work but requires impure mode.
+      # builtins.appendContext works in pure mode (flake check).
+      #
+      # The flow is:
+      # 1. Extract the raw path string from package.drvPath (discarding original context)
+      # 2. Use builtins.appendContext to add `path = true` context for just the .drv
+      # 3. This makes the .drv file a dependency of our wrapper, but NOT its outputs
+      #
+      # How .drv files work:
+      # A .drv file is a complete build recipe that contains references to all its
+      # input derivations. When Nix copies a .drv to the store, it recursively ensures
+      # all referenced input .drv files also exist. This is standard Nix behavior.
+      # At runtime, `nix-store --realise` uses these .drv files to build/download
+      # the package and all its dependencies.
+      #
+      # Runtime note: Manual testing is recommended to verify `nix-store --realise`
+      # works correctly for your specific packages, especially for packages with
+      # complex dependency graphs.
+      pkgDrvPathRaw = if hasPackage then builtins.unsafeDiscardStringContext package.drvPath else "";
+      pkgDrvPath =
+        if hasPackage then
+          # appendContext adds a dependency on the .drv file existing, but with
+          # path = true (not allOutputs = true), so outputs won't be built
+          builtins.appendContext pkgDrvPathRaw {
+            "${pkgDrvPathRaw}" = { path = true; };
+          }
+        else
+          "";
+      pkgOutPath =
+        # The outPath is embedded as a plain string (no context) so the script
+        # knows where to find the binary after realization
+        if hasPackage then builtins.unsafeDiscardStringContext package.outPath else "";
+
+      # ===========================================================================
+      # Pname Mode: Lookup by attribute name
+      # ===========================================================================
+
+      # Validate pname if provided
+      validatedPname = if hasPname then validatePname pname else pkgPname;
+
+      # Get metadata from nixpkgs lookup
+      pnameExe = if exe != null then exe else getMainProgram validatedPname;
+      pnameDescription = if description != null then description else getDescription validatedPname;
+      pnameIsUnfree = if hasPname then isPackageUnfree validatedPname else false;
+
+      # ===========================================================================
+      # Common Logic (both modes)
+      # ===========================================================================
+
+      # Select the right values based on mode
+      finalExe = if hasPackage then pkgExe else pnameExe;
+      finalDescription = if hasPackage then pkgDescription else pnameDescription;
+      packageIsUnfree = if hasPackage then pkgIsUnfree else pnameIsUnfree;
 
       # Terminal command is the user-facing symlink name
-      # Normalized to lowercase for Unix convention (users expect to type "discord" not "Discord")
+      # Normalized to lowercase for Unix convention
       terminalCommand = lib.toLower finalExe;
 
+      # Desktop name generation
       finalDesktopName = if desktopName != null then desktopName else toDisplayName validatedPname;
-      finalDescription = if description != null then description else getDescription validatedPname;
 
-      # Security: Check if package is unfree and validate allowUnfree
-      packageIsUnfree = isPackageUnfree validatedPname;
-      needsImpure = packageIsUnfree && allowUnfree;
+      # Security: Check unfree status
+      # For package mode: unfree packages work directly (no --impure needed for nix-store --realise)
+      # For pname mode: unfree packages need --impure with NIXPKGS_ALLOW_UNFREE
+      needsImpure = if hasPackage then false else (packageIsUnfree && allowUnfree);
 
-      # Icon name to search for (user override or package name)
-      # Also try mainProgram as fallback (e.g., obs-studio -> obs)
+      # Icon name to search for
       iconName = if icon != null then icon else validatedPname;
       iconNameFallback = finalExe;
-
-      # Check if user provided an absolute path
       iconIsAbsolutePath = icon != null && lib.hasPrefix "/" icon;
 
-      # Create the wrapper script content
-      # Using @-style placeholders for substitute
-      wrapperScript = writeText "deferred-${validatedPname}-wrapper" ''
+      # ===========================================================================
+      # Wrapper Scripts
+      # ===========================================================================
+
+      # Wrapper for PNAME mode (uses nix shell)
+      wrapperScriptPname = writeText "deferred-${validatedPname}-wrapper-pname" ''
         #!/usr/bin/env bash
         set -euo pipefail
 
@@ -268,10 +443,9 @@ let
         GC_ROOT_DIR="''${XDG_DATA_HOME:-$HOME/.local/share}/deferred-apps/gcroots"
 
         # Show notification (only if not already cached)
-        # We check for the GC root as a proxy for "already downloaded"
         maybe_notify() {
           if [ "$GC_ROOT" = "1" ] && [ -L "$GC_ROOT_DIR/$PNAME" ]; then
-            return  # Already have GC root, skip notification
+            return
           fi
           if command -v notify-send &>/dev/null; then
             notify-send \
@@ -284,7 +458,6 @@ let
         }
 
         # Ensure package is downloaded and create GC root
-        # nix build is smart about caching - it won't re-download if already present
         ensure_downloaded() {
           local build_args=("$FLAKE_REF#$PNAME" "--no-link" "--print-out-paths")
 
@@ -296,18 +469,15 @@ let
           local store_path
           store_path=$(nix build "''${build_args[@]}" 2>/dev/null) || return 0
 
-          # Create GC root to prevent garbage collection
           if [ "$GC_ROOT" = "1" ] && [ -n "$store_path" ]; then
             mkdir -p "$GC_ROOT_DIR"
             nix-store --add-root "$GC_ROOT_DIR/$PNAME" --indirect -r "$store_path" &>/dev/null || true
           fi
         }
 
-        # Main execution
         maybe_notify
         ensure_downloaded
 
-        # Run the application
         if [ "$NEEDS_IMPURE" = "1" ]; then
           export NIXPKGS_ALLOW_UNFREE=1
           exec nix shell --impure "$FLAKE_REF#$PNAME" --command "$EXE" "$@"
@@ -316,11 +486,87 @@ let
         fi
       '';
 
-      # Create the .desktop file using nixpkgs' makeDesktopItem for proper escaping
+      # Wrapper for PACKAGE mode (uses nix-store --realise)
+      #
+      # Note on multi-output packages:
+      # This assumes the binary is in $out/bin/. For packages with multiple outputs
+      # where the binary is in a different output (rare), users can override with
+      # the `exe` option providing a path relative to the package or use pname mode.
+      wrapperScriptPackage = writeText "deferred-${validatedPname}-wrapper-package" ''
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        PNAME="@pname@"
+        DRV_PATH="@drvPath@"
+        OUT_PATH="@outPath@"
+        EXE="@exe@"
+        ICON="@icon@"
+        GC_ROOT="@gcRoot@"
+
+        # GC root directory for this user
+        GC_ROOT_DIR="''${XDG_DATA_HOME:-$HOME/.local/share}/deferred-apps/gcroots"
+
+        # Check if package is already available (cached or realized)
+        is_available() {
+          # If GC root is enabled and exists, package is available
+          if [ "$GC_ROOT" = "1" ] && [ -L "$GC_ROOT_DIR/$PNAME" ]; then
+            return 0
+          fi
+          # Otherwise check if output directory exists in store
+          [ -d "$OUT_PATH" ]
+        }
+
+        # Show notification (only if not already available)
+        maybe_notify() {
+          if is_available; then
+            return
+          fi
+          if command -v notify-send &>/dev/null; then
+            notify-send \
+              --app-name="Deferred Apps" \
+              --urgency=low \
+              --icon="$ICON" \
+              "Starting $PNAME..." \
+              "Downloading application (first run only)..." &
+          fi
+        }
+
+        # Ensure package is realized
+        ensure_realized() {
+          if [ ! -d "$OUT_PATH" ]; then
+            # Realize the derivation (downloads/builds as needed)
+            # Show errors to user for debugging (don't suppress stderr)
+            if ! nix-store --realise "$DRV_PATH" >/dev/null; then
+              echo "deferred-apps: Failed to realize $PNAME from $DRV_PATH" >&2
+              echo "deferred-apps: Try running: nix-store --realise $DRV_PATH" >&2
+              exit 1
+            fi
+          fi
+
+          # Create GC root if enabled
+          if [ "$GC_ROOT" = "1" ] && [ ! -L "$GC_ROOT_DIR/$PNAME" ]; then
+            mkdir -p "$GC_ROOT_DIR"
+            nix-store --add-root "$GC_ROOT_DIR/$PNAME" --indirect -r "$OUT_PATH" &>/dev/null || true
+          fi
+        }
+
+        maybe_notify
+        ensure_realized
+
+        # Run the application directly from the store path
+        # Note: Assumes binary is in $out/bin/. For multi-output packages where
+        # the binary is in a different output, use the exe option with a full path.
+        exec "$OUT_PATH/bin/$EXE" "$@"
+      '';
+
+      # Select the right wrapper based on mode
+      wrapperScript = if hasPackage then wrapperScriptPackage else wrapperScriptPname;
+
+      # Create the .desktop file
       desktopItem = makeDesktopItem {
         name = validatedPname;
         exec = "@out@/libexec/deferred-${validatedPname} %U";
-        icon = "@icon@"; # Placeholder, will be substituted
+        icon = "@icon@";
         comment = finalDescription;
         desktopName = finalDesktopName;
         inherit categories;
@@ -330,43 +576,46 @@ let
       };
 
     in
-    # Error if unfree package without explicit opt-in
-    assert lib.assertMsg (!packageIsUnfree || allowUnfree)
+    # Validation: unfree check for pname mode
+    assert lib.assertMsg (hasPackage || !packageIsUnfree || allowUnfree)
       "deferred-apps: Package '${validatedPname}' is unfree. Set 'allowUnfree = true' to enable it (uses --impure).";
     runCommand "deferred-${validatedPname}"
       {
         inherit
           validatedPname
           finalExe
-          flakeRef
-          iconName
-          iconNameFallback
           wrapperScript
           desktopItem
           terminalCommand
+          mode  # Force evaluation of mode (triggers validation assertions)
           ;
+        # Mode-specific variables
+        isPackageMode = if hasPackage then "1" else "";
+        flakeRef = if hasPackage then "" else flakeRef;
+        drvPath = pkgDrvPath;
+        outPath = pkgOutPath;
+        # Common variables
         iconThemePath = "${iconThemePackage}/share/icons/${iconThemeName}";
         iconSizes = iconSizesList;
         userIcon = if iconIsAbsolutePath then icon else "";
         createTerminal = if createTerminalCommand then "1" else "";
         needsImpureStr = if needsImpure then "1" else "0";
         gcRootStr = if gcRoot then "1" else "0";
+        iconName = iconName;
+        iconNameFallback = iconNameFallback;
       }
       ''
         # ===========================================================================
         # Build-time icon resolution
         # ===========================================================================
 
-        # Function to find icon in theme
         find_icon() {
           local name="$1"
           local theme_path="$iconThemePath"
 
-          # Search in each size directory
           for size in $iconSizes; do
             local icon_path="$theme_path/$size/apps/$name.svg"
             if [ -e "$icon_path" ]; then
-              # Resolve symlinks to get the real path
               readlink -f "$icon_path"
               return 0
             fi
@@ -374,41 +623,48 @@ let
           return 1
         }
 
-        # Resolve the icon
         if [ -n "$userIcon" ]; then
-          # User provided absolute path - use it directly
           RESOLVED_ICON="$userIcon"
         else
-          # Try to find icon in theme
           if RESOLVED_ICON=$(find_icon "$iconName"); then
-            : # Found with primary name
+            :
           elif RESOLVED_ICON=$(find_icon "$iconNameFallback"); then
-            : # Found with fallback name (mainProgram)
+            :
           else
-            # Fallback to icon name (let DE resolve it)
             echo "WARNING: Icon '$iconName' not found in theme. Desktop may show missing icon." >&2
             RESOLVED_ICON="$iconName"
           fi
         fi
 
-        # Create output directories
         mkdir -p "$out/libexec" "$out/share/applications"
 
         # ===========================================================================
-        # Create the wrapper script (in libexec, not directly in bin)
+        # Create the wrapper script
         # ===========================================================================
-        substitute "$wrapperScript" "$out/libexec/deferred-$validatedPname" \
-          --replace-fail '@icon@' "$RESOLVED_ICON" \
-          --replace-fail '@pname@' "$validatedPname" \
-          --replace-fail '@flakeRef@' "$flakeRef" \
-          --replace-fail '@exe@' "$finalExe" \
-          --replace-fail '@needsImpure@' "$needsImpureStr" \
-          --replace-fail '@gcRoot@' "$gcRootStr"
+        if [ -n "$isPackageMode" ]; then
+          # Package mode: substitute package-specific variables
+          substitute "$wrapperScript" "$out/libexec/deferred-$validatedPname" \
+            --replace-fail '@icon@' "$RESOLVED_ICON" \
+            --replace-fail '@pname@' "$validatedPname" \
+            --replace-fail '@drvPath@' "$drvPath" \
+            --replace-fail '@outPath@' "$outPath" \
+            --replace-fail '@exe@' "$finalExe" \
+            --replace-fail '@gcRoot@' "$gcRootStr"
+        else
+          # Pname mode: substitute flake-specific variables
+          substitute "$wrapperScript" "$out/libexec/deferred-$validatedPname" \
+            --replace-fail '@icon@' "$RESOLVED_ICON" \
+            --replace-fail '@pname@' "$validatedPname" \
+            --replace-fail '@flakeRef@' "$flakeRef" \
+            --replace-fail '@exe@' "$finalExe" \
+            --replace-fail '@needsImpure@' "$needsImpureStr" \
+            --replace-fail '@gcRoot@' "$gcRootStr"
+        fi
 
         chmod +x "$out/libexec/deferred-$validatedPname"
 
         # ===========================================================================
-        # Create the .desktop file (copy from makeDesktopItem and substitute)
+        # Create the .desktop file
         # ===========================================================================
         cp "$desktopItem/share/applications/$validatedPname.desktop" \
            "$out/share/applications/$validatedPname.desktop"
@@ -423,7 +679,6 @@ let
 
         # ===========================================================================
         # Create terminal command symlink (optional)
-        # Only creates bin/ directory and symlinks when terminal commands are enabled
         # ===========================================================================
         if [ -n "$createTerminal" ]; then
           mkdir -p "$out/bin"
@@ -436,27 +691,40 @@ let
   #
   # Each app in the list can be:
   #   - A string (package name)
-  #   - An attrset with { pname, exe?, createTerminalCommand? }
+  #   - An attrset with { pname?, package?, exe?, createTerminalCommand? }
   #
   # Note: exe can be null (from module submodule defaults), which means "auto-detect"
   detectTerminalCollisions =
     apps:
     let
-      # Get all (pname, terminalCommand) pairs where terminal command is enabled
+      # Get all (pname, terminalCommand, source) tuples where terminal command is enabled
       terminalApps = builtins.filter (app: app.createTerminalCommand or true) apps;
       terminalCommands = map (
         app:
         let
-          pname = app.pname or app;
-          # Handle both missing exe AND null exe (from module submodule defaults)
-          # app.exe or ... only triggers if exe is missing, not if it's null
+          # Handle both pname and package modes
+          hasPackage = (app.package or null) != null;
+          pname =
+            if hasPackage then
+              getPnameFromPackage app.package
+            else
+              app.pname or app;
+          # Get exe from: explicit > package metadata > pname lookup
           appExe = app.exe or null;
-          exe = if appExe != null then appExe else getMainProgram pname;
+          exe =
+            if appExe != null then
+              appExe
+            else if hasPackage then
+              getMainProgramFromPackage app.package
+            else
+              getMainProgram pname;
           # Terminal command is lowercase for Unix convention
           terminalCommand = lib.toLower exe;
+          # Track source for better error messages
+          source = if hasPackage then "package" else "pname";
         in
         {
-          inherit pname terminalCommand;
+          inherit pname terminalCommand source;
         }
       ) terminalApps;
 
@@ -470,7 +738,9 @@ let
       null
     else
       let
-        formatDup = cmd: apps': "  '${cmd}' -> ${lib.concatMapStringsSep ", " (a: "'${a.pname}'") apps'}";
+        # Format each app with its source type for clarity
+        formatApp = a: "'${a.pname}' (${a.source})";
+        formatDup = cmd: apps': "  '${cmd}' -> ${lib.concatMapStringsSep ", " formatApp apps'}";
         dupList = lib.mapAttrsToList formatDup duplicates;
       in
       ''
@@ -482,7 +752,15 @@ let
 
 in
 {
-  inherit mkDeferredApp detectTerminalCollisions;
+  inherit
+    mkDeferredApp
+    detectTerminalCollisions
+    # Export helper functions for advanced use cases
+    getPnameFromPackage
+    getMainProgramFromPackage
+    getDescriptionFromPackage
+    isDerivationUnfree
+    ;
 
   # Create multiple deferred apps from a list of package names
   # Validates that no terminal command collisions exist
@@ -506,7 +784,7 @@ in
     map (pname: mkDeferredApp { inherit pname flakeRef; }) pnames;
 
   # Create multiple deferred apps with full configuration
-  # Takes a list of attribute sets, each with pname and optional overrides
+  # Takes a list of attribute sets, each with pname/package and optional overrides
   mkDeferredAppsAdvanced =
     appConfigs:
     let
@@ -514,4 +792,16 @@ in
     in
     assert lib.assertMsg (collision == null) collision;
     map mkDeferredApp appConfigs;
+
+  # Create multiple deferred apps from a list of package derivations
+  # This is the package-mode equivalent of mkDeferredApps
+  # Validates that no terminal command collisions exist
+  mkDeferredPackages =
+    packages:
+    let
+      appConfigs = map (package: { inherit package; }) packages;
+      collision = detectTerminalCollisions appConfigs;
+    in
+    assert lib.assertMsg (collision == null) collision;
+    map (package: mkDeferredApp { inherit package; }) packages;
 }
