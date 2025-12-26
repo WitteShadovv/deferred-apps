@@ -419,7 +419,7 @@ The module assumes binaries are in `$out/bin/`. For packages where the binary is
 
 **Q: Why not use [comma](https://github.com/nix-community/comma)?**
 
-Comma is excellent for CLI power users who want to run arbitrary commands on-demand from the terminal. Deferred Apps solves a different problem: making GUI applications appear in your desktop launcher *before* they're downloaded.
+Comma is excellent for CLI users who want to run arbitrary commands on-demand from the terminal. Deferred Apps solves a different problem: making GUI applications appear in your desktop launcher *before* they're downloaded.
 
 | | Comma | Deferred Apps |
 |---|---|---|
@@ -429,7 +429,7 @@ Comma is excellent for CLI power users who want to run arbitrary commands on-dem
 | **Icons** | N/A | Auto-resolved from Papirus |
 | **Version pinning** | Uses nix-index results | Pinned to your `flake.lock` |
 
-Use comma for ad-hoc CLI tools; use Deferred Apps for GUI applications you want in your launcher without the upfront download.
+Use comma for CLI tools; use Deferred Apps for GUI applications you want in your launcher without the upfront download.
 
 ## See Also
 
