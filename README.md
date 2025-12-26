@@ -232,7 +232,7 @@ environment.systemPackages = [
 let
   deferred-apps = import (fetchTarball {
     url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.2.0.tar.gz";
-    sha256 = "sha256-PLACEHOLDER"; # Update after release: nix-prefetch-url --unpack <url>
+    sha256 = "1r8arg8aclq1fwg6rfksbrs7jrgzi2fkbm4aibnif5mcnqxnijbi";
   });
 in {
   imports = [ deferred-apps.nixosModules.default ];
@@ -247,7 +247,7 @@ in {
 let
   deferred-apps = import (fetchTarball {
     url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.2.0.tar.gz";
-    sha256 = "sha256-PLACEHOLDER"; # Update after release: nix-prefetch-url --unpack <url>
+    sha256 = "1r8arg8aclq1fwg6rfksbrs7jrgzi2fkbm4aibnif5mcnqxnijbi";
   });
 in {
   imports = [ deferred-apps.homeManagerModules.default ];
