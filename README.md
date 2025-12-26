@@ -417,6 +417,20 @@ This is expected by default. Enable `gcRoot = true` to protect downloaded packag
 
 The module assumes binaries are in `$out/bin/`. For packages where the binary is in a different output (rare), you can use the `exe` option with a custom path.
 
+**Q: Why not use [comma](https://github.com/nix-community/comma)?**
+
+Comma is excellent for CLI power users who want to run arbitrary commands on-demand from the terminal. Deferred Apps solves a different problem: making GUI applications appear in your desktop launcher *before* they're downloaded.
+
+| | Comma | Deferred Apps |
+|---|---|---|
+| **Use case** | Run CLI commands on-demand | GUI apps in launcher |
+| **Interface** | Terminal (`, cowsay hello`) | Desktop files & app launchers |
+| **Discovery** | nix-index database | Explicit package list |
+| **Icons** | N/A | Auto-resolved from Papirus |
+| **Version pinning** | Uses nix-index results | Pinned to your `flake.lock` |
+
+Use comma for ad-hoc CLI tools; use Deferred Apps for GUI applications you want in your launcher without the upfront download.
+
 ## See Also
 
 - [nixpkgs](https://github.com/NixOS/nixpkgs) — Where the packages come from
