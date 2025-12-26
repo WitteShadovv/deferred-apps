@@ -25,13 +25,16 @@
 #   mkDeferredPackages [ pkgs.spotify pkgs.discord ]                # Direct packages
 #
 # Icon Resolution:
-#   Icons are resolved at BUILD TIME (inside derivations) to absolute paths
-#   from the configured icon theme (Papirus-Dark by default). This ensures:
+#   Icons are resolved at BUILD TIME from the configured icon theme (Papirus-Dark
+#   by default). The icon file is COPIED into the wrapper's output to avoid
+#   pulling in the entire icon theme (~1GB) as a runtime dependency.
+#
+#   Benefits:
 #   1. CI/CD compatibility - no derivation references at evaluation time
 #   2. Icons work regardless of user's DE icon theme (e.g., Yaru lacks Spotify)
+#   3. Minimal closure size (~5KB per wrapper, even with icons)
 #
-#   The desktop file gets an absolute path to the icon in the Nix store.
-#   This bypasses DE theme lookup, guaranteeing the icon displays correctly.
+#   The desktop file gets an absolute path to the copied icon in the output.
 #
 # Security:
 #   - Free packages: Use pure `nix shell` (no environment variable influence)
@@ -351,50 +354,22 @@ let
       pkgIsUnfree = if hasPackage then isDerivationUnfree package else false;
 
       # Capture paths for runtime realization
-      # We need the .drv file to exist at runtime so nix-store --realise works.
       #
-      # CRITICAL: We must NOT trigger building the package outputs at system build time.
-      # The challenge is that `package.drvPath` has string context with `allOutputs = true`,
-      # which would cause Nix to build all outputs when used in a derivation.
+      # CRITICAL: We store paths as PLAIN STRINGS (no Nix context).
+      # This keeps .drv files OUT of the system closure entirely!
       #
-      # Solution: Use `builtins.appendContext` to create a new reference to the .drv file
-      # with `path = true` context instead of `allOutputs = true`. This tells Nix
-      # "I need this path to exist" without implying "build the derivation's outputs".
+      # How it works at runtime:
+      # 1. nix-store -r <outPath> fetches from binary cache (works for nixpkgs)
+      # 2. If that fails and .drv exists locally, nix-store --realise <drvPath>
+      # 3. If both fail, show helpful error message
       #
-      # Note: builtins.storePath would also work but requires impure mode.
-      # builtins.appendContext works in pure mode (flake check).
+      # For packages from standard nixpkgs: cache.nixos.org has them, so step 1 works.
+      # For custom packages: user likely evaluated locally, so .drv exists for step 2.
       #
-      # The flow is:
-      # 1. Extract the raw path string from package.drvPath (discarding original context)
-      # 2. Use builtins.appendContext to add `path = true` context for just the .drv
-      # 3. This makes the .drv file a dependency of our wrapper, but NOT its outputs
-      #
-      # How .drv files work:
-      # A .drv file is a complete build recipe that contains references to all its
-      # input derivations. When Nix copies a .drv to the store, it recursively ensures
-      # all referenced input .drv files also exist. This is standard Nix behavior.
-      # At runtime, `nix-store --realise` uses these .drv files to build/download
-      # the package and all its dependencies.
-      #
-      # Runtime note: Manual testing is recommended to verify `nix-store --realise`
-      # works correctly for your specific packages, especially for packages with
-      # complex dependency graphs.
-      pkgDrvPathRaw = if hasPackage then builtins.unsafeDiscardStringContext package.drvPath else "";
-      pkgDrvPath =
-        if hasPackage then
-          # appendContext adds a dependency on the .drv file existing, but with
-          # path = true (not allOutputs = true), so outputs won't be built
-          builtins.appendContext pkgDrvPathRaw {
-            "${pkgDrvPathRaw}" = {
-              path = true;
-            };
-          }
-        else
-          "";
-      pkgOutPath =
-        # The outPath is embedded as a plain string (no context) so the script
-        # knows where to find the binary after realization
-        if hasPackage then builtins.unsafeDiscardStringContext package.outPath else "";
+      # This is a major improvement over the previous appendContext approach which
+      # pulled ALL transitive .drv files into the system closure.
+      pkgDrvPath = if hasPackage then builtins.unsafeDiscardStringContext package.drvPath else "";
+      pkgOutPath = if hasPackage then builtins.unsafeDiscardStringContext package.outPath else "";
 
       # ===========================================================================
       # Pname Mode: Lookup by attribute name
@@ -505,7 +480,15 @@ let
         fi
       '';
 
-      # Wrapper for PACKAGE mode (uses nix-store --realise)
+      # Wrapper for PACKAGE mode (uses nix-store -r with output path)
+      #
+      # Strategy for fetching the package:
+      # 1. Try nix-store -r <outPath> - fetches from binary cache (fast!)
+      # 2. If fails and .drv exists locally, try nix-store --realise <drvPath>
+      # 3. If both fail, show helpful error
+      #
+      # This approach keeps .drv files OUT of the system closure while still
+      # supporting packages from binary caches (most common case).
       #
       # Note on multi-output packages:
       # This assumes the binary is in $out/bin/. For packages with multiple outputs
@@ -550,27 +533,52 @@ let
           fi
         }
 
-        # Ensure package is realized
+        # Ensure package is realized - tries multiple strategies
         ensure_realized() {
-          if [ ! -d "$OUT_PATH" ]; then
-            # Realize the derivation (downloads/builds as needed)
-            # Show errors to user for debugging (don't suppress stderr)
-            if ! nix-store --realise "$DRV_PATH" >/dev/null; then
-              echo "deferred-apps: Failed to realize $PNAME from $DRV_PATH" >&2
-              echo "deferred-apps: Try running: nix-store --realise $DRV_PATH" >&2
-              exit 1
+          if [ -d "$OUT_PATH" ]; then
+            return 0
+          fi
+
+          # Strategy 1: Try to fetch output directly from binary cache
+          # This works for all packages in cache.nixos.org (most nixpkgs packages)
+          if nix-store -r "$OUT_PATH" >/dev/null 2>&1; then
+            return 0
+          fi
+
+          # Strategy 2: If .drv exists locally (from evaluation), use it
+          # This works for packages built locally or with custom overlays
+          if [ -n "$DRV_PATH" ] && [ -f "$DRV_PATH" ]; then
+            if nix-store --realise "$DRV_PATH" >/dev/null; then
+              return 0
             fi
           fi
 
-          # Create GC root if enabled
-          if [ "$GC_ROOT" = "1" ] && [ ! -L "$GC_ROOT_DIR/$PNAME" ]; then
-            mkdir -p "$GC_ROOT_DIR"
-            nix-store --add-root "$GC_ROOT_DIR/$PNAME" --indirect -r "$OUT_PATH" &>/dev/null || true
-          fi
+          # Both strategies failed
+          echo "deferred-apps: Failed to fetch $PNAME" >&2
+          echo "" >&2
+          echo "The package output ($OUT_PATH) is not available from binary caches," >&2
+          echo "and the derivation file is not available locally." >&2
+          echo "" >&2
+          echo "This can happen with:" >&2
+          echo "  - Packages from custom overlays" >&2
+          echo "  - Packages modified locally" >&2
+          echo "  - Private packages not in public caches" >&2
+          echo "" >&2
+          echo "Solutions:" >&2
+          echo "  1. Build the package once: nix build nixpkgs#$PNAME" >&2
+          echo "  2. Use 'apps' option instead of 'packages' for this package" >&2
+          echo "  3. Set up your own binary cache" >&2
+          exit 1
         }
 
         maybe_notify
         ensure_realized
+
+        # Create GC root if enabled and not already present
+        if [ "$GC_ROOT" = "1" ] && [ ! -L "$GC_ROOT_DIR/$PNAME" ]; then
+          mkdir -p "$GC_ROOT_DIR"
+          nix-store --add-root "$GC_ROOT_DIR/$PNAME" --indirect -r "$OUT_PATH" &>/dev/null || true
+        fi
 
         # Run the application directly from the store path
         # Note: Assumes binary is in $out/bin/. For multi-output packages where
@@ -626,6 +634,10 @@ let
         # ===========================================================================
         # Build-time icon resolution
         # ===========================================================================
+        #
+        # IMPORTANT: We COPY the icon into $out to avoid pulling in the entire icon
+        # theme (~1GB) as a runtime dependency. The desktop file then references
+        # our local copy instead of the theme package.
 
         find_icon() {
           local name="$1"
@@ -634,6 +646,7 @@ let
           for size in $iconSizes; do
             local icon_path="$theme_path/$size/apps/$name.svg"
             if [ -e "$icon_path" ]; then
+              # Return the resolved path (follows symlinks)
               readlink -f "$icon_path"
               return 0
             fi
@@ -641,20 +654,33 @@ let
           return 1
         }
 
+        mkdir -p "$out/libexec" "$out/share/applications" "$out/share/icons"
+
+        # Resolve and copy icon
+        RESOLVED_ICON=""
         if [ -n "$userIcon" ]; then
+          # User provided absolute path - use as-is (they control the dependency)
           RESOLVED_ICON="$userIcon"
         else
-          if RESOLVED_ICON=$(find_icon "$iconName"); then
+          # Try to find icon in theme
+          THEME_ICON=""
+          if THEME_ICON=$(find_icon "$iconName"); then
             :
-          elif RESOLVED_ICON=$(find_icon "$iconNameFallback"); then
+          elif THEME_ICON=$(find_icon "$iconNameFallback"); then
             :
+          fi
+
+          if [ -n "$THEME_ICON" ]; then
+            # Copy icon to our output to avoid depending on the entire theme package
+            # This reduces closure from ~1GB to ~5KB!
+            cp "$THEME_ICON" "$out/share/icons/$validatedPname.svg"
+            RESOLVED_ICON="$out/share/icons/$validatedPname.svg"
           else
+            # No icon found - use name and hope DE can resolve it
             echo "WARNING: Icon '$iconName' not found in theme. Desktop may show missing icon." >&2
             RESOLVED_ICON="$iconName"
           fi
         fi
-
-        mkdir -p "$out/libexec" "$out/share/applications"
 
         # ===========================================================================
         # Create the wrapper script

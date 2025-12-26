@@ -64,9 +64,9 @@ let
           - Packages with overlays applied
           - Packages pinned to your flake.lock
 
-          The package is NOT built at system build time. Only the derivation
-          file (.drv) is captured, and the actual package is realized on
-          first launch.
+          The package is NOT built at system build time. Only the store paths
+          are captured, and the actual package is downloaded on first launch
+          via binary cache or built locally.
 
           Note: When `package` is provided, `flakeRef` and `allowUnfree` are
           ignored since the package source is already determined.
@@ -440,9 +440,9 @@ in
         - **Overlays**: Your custom overlays are respected since you're passing
           the actual package.
 
-        At system build time, only the derivation file (.drv) is captured - the
-        package outputs are NOT built. On first launch, `nix-store --realise` is
-        used to download/build the package.
+        At system build time, only the store paths are captured - the package
+        outputs are NOT built. On first launch, `nix-store -r` fetches the
+        package from binary caches (or builds it if not available).
 
         Note: `allowUnfree` is not needed for packages passed here, as the
         license check happens when you reference the package in your flake.
