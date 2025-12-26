@@ -5,12 +5,12 @@
 
 **Apps appear in your launcher but only download when first launched.**
 
-Deferred Apps creates lightweight wrapper scripts that look like installed applications but only download the actual package on first use. Perfect for apps you rarely use but want available, without bloating your system closure.
+Deferred Apps creates wrapper scripts that look like installed applications but only download the actual package on first use. Perfect for apps you rarely use but want available.
 
 ## Features
 
 - **Instant availability** — Apps appear in your launcher immediately
-- **Zero overhead** — No disk space used until first launch
+- **Deferred downloads** — Package outputs download on first launch, not at build time
 - **Flake.lock pinning** — Packages pinned to exact versions from your flake
 - **Overlay support** — Use packages from custom nixpkgs instances with your overlays
 - **Proper icons** — Automatically resolves icons from Papirus theme
@@ -121,11 +121,13 @@ Run `home-manager switch` (standalone) or `nixos-rebuild switch` (NixOS module) 
 
 ## How It Works
 
-1. **At build time**: Captures only the `.drv` file (~50KB), NOT the package outputs
-2. **At first launch**: Realizes the derivation via `nix-store --realise`
-3. **Subsequent launches**: Uses the Nix store cache (near-instant)
+1. **At build time**: Creates wrapper scripts with `.desktop` files. The wrapper captures the package's derivation path (`.drv` file) but does NOT build the package outputs.
+2. **At first launch**: Realizes the derivation via `nix-store --realise`, which downloads or builds the package.
+3. **Subsequent launches**: Uses the Nix store cache (near-instant).
 
 Packages are pinned to exact versions from your `flake.lock`, and custom overlays are respected since you're passing actual package references.
+
+> **Note**: The wrapper closure includes the icon theme (~1 GB for Papirus) if an icon is found, plus derivation files for package mode. The key benefit is deferring the download of the actual package outputs until first use.
 
 > **Note**: By default, downloaded packages may be removed by `nix-collect-garbage`. Enable `gcRoot = true` to prevent this (see [Garbage Collection](#garbage-collection)).
 
