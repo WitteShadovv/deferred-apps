@@ -259,7 +259,7 @@ in
         system flake's nixpkgs). Pin to a specific revision for reproducibility:
 
         ```nix
-        flakeRef = "github:NixOS/nixpkgs/nixos-24.11";
+        flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
         ```
       '';
     };

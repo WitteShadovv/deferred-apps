@@ -161,7 +161,7 @@ in
           flakeRef = "nixpkgs"; # Global default
           extraApps = {
             hello = {
-              flakeRef = "github:NixOS/nixpkgs/nixos-24.11"; # Override
+              flakeRef = "github:NixOS/nixpkgs/nixos-25.11"; # Override
             };
             cowsay = { }; # Uses global
           };
@@ -176,7 +176,7 @@ in
       paths = deferredPkgs;
       postBuild = ''
         # hello should have custom flakeRef
-        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' "$out/libexec/deferred-hello" || \
+        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' "$out/libexec/deferred-hello" || \
           { echo "FAIL: hello should have custom flakeRef"; exit 1; }
 
         # cowsay should have global flakeRef
@@ -542,7 +542,7 @@ in
           flakeRef = "nixpkgs";
           extraApps = {
             "python313Packages.numpy" = {
-              flakeRef = "github:NixOS/nixpkgs/nixos-24.11";
+              flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
             };
           };
         };
@@ -555,7 +555,7 @@ in
       name = "check-module-nested-per-app-flakeRef";
       paths = deferredPkgs;
       postBuild = ''
-        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' \
+        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' \
           "$out/libexec/deferred-python313Packages.numpy" || \
           { echo "FAIL: custom flakeRef not applied"; exit 1; }
       '';

@@ -368,10 +368,10 @@ in
     mkBuildCheck "lib-flakeRef-custom"
       (deferredAppsLib.mkDeferredApp {
         pname = "hello";
-        flakeRef = "github:NixOS/nixpkgs/nixos-24.11";
+        flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
       })
       ''
-        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' "$drvPath/libexec/deferred-hello" || \
+        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' "$drvPath/libexec/deferred-hello" || \
           { echo "FAIL: custom flakeRef not used"; exit 1; }
       '';
 

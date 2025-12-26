@@ -153,10 +153,10 @@ in
     mkBuildCheck "nested-flakeRef-custom"
       (deferredAppsLib.mkDeferredApp {
         pname = "python313Packages.numpy";
-        flakeRef = "github:NixOS/nixpkgs/nixos-24.11";
+        flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
       })
       ''
-        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' \
+        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' \
           "$drvPath/libexec/deferred-python313Packages.numpy" || \
           { echo "FAIL: custom flakeRef not used"; exit 1; }
       '';
@@ -201,11 +201,11 @@ in
   # Test: mkDeferredAppsFrom with nested packages
   nested-mkDeferredAppsFrom = pkgs.symlinkJoin {
     name = "check-nested-mkDeferredAppsFrom";
-    paths = deferredAppsLib.mkDeferredAppsFrom "github:NixOS/nixpkgs/nixos-24.11" [
+    paths = deferredAppsLib.mkDeferredAppsFrom "github:NixOS/nixpkgs/nixos-25.11" [
       "python313Packages.numpy"
     ];
     postBuild = ''
-      grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' \
+      grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' \
         "$out/libexec/deferred-python313Packages.numpy" || \
         { echo "FAIL: custom flakeRef not applied to nested package"; exit 1; }
     '';

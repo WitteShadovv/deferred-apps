@@ -37,12 +37,12 @@ in
   # Test: mkDeferredAppsFrom with custom flakeRef
   lib-mkDeferredAppsFrom = pkgs.symlinkJoin {
     name = "check-mkDeferredAppsFrom";
-    paths = deferredAppsLib.mkDeferredAppsFrom "github:NixOS/nixpkgs/nixos-24.11" [
+    paths = deferredAppsLib.mkDeferredAppsFrom "github:NixOS/nixpkgs/nixos-25.11" [
       "hello"
       "cowsay"
     ];
     postBuild = ''
-      grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' "$out/libexec/deferred-hello" || \
+      grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' "$out/libexec/deferred-hello" || \
         { echo "FAIL: custom flakeRef not applied"; exit 1; }
     '';
   };

@@ -126,7 +126,7 @@ Deferred Apps uses a **hybrid security approach**:
 By default, `flakeRef = "nixpkgs"` uses your system's flake registry, which typically points to the nixpkgs version from your system flake. For reproducibility, pin to a specific nixpkgs:
 
 ```nix
-programs.deferredApps.flakeRef = "github:NixOS/nixpkgs/nixos-25.05";
+programs.deferredApps.flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
 ```
 
 ## Garbage Collection
@@ -176,7 +176,7 @@ programs.deferredApps = {
   allowUnfree = true;
   
   # Pin to a specific nixpkgs
-  flakeRef = "github:NixOS/nixpkgs/nixos-25.05";
+  flakeRef = "github:NixOS/nixpkgs/nixos-25.11";
   
   # Custom icon theme (optional)
   iconTheme = {

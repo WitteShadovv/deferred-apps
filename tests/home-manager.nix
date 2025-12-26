@@ -134,7 +134,7 @@ in
           flakeRef = "nixpkgs"; # Global default
           extraApps = {
             hello = {
-              flakeRef = "github:NixOS/nixpkgs/nixos-24.11"; # Override
+              flakeRef = "github:NixOS/nixpkgs/nixos-25.11"; # Override
             };
             cowsay = { }; # Uses global
           };
@@ -149,7 +149,7 @@ in
       paths = deferredPkgs;
       postBuild = ''
         # hello should have custom flakeRef
-        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-24.11"' "$out/libexec/deferred-hello" || \
+        grep -q 'FLAKE_REF="github:NixOS/nixpkgs/nixos-25.11"' "$out/libexec/deferred-hello" || \
           { echo "FAIL: hello should have custom flakeRef"; exit 1; }
 
         # cowsay should have global flakeRef

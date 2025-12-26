@@ -21,7 +21,7 @@ let
   minimalNixosConfig = {
     boot.loader.grub.enable = false;
     fileSystems."/".device = "none";
-    system.stateVersion = "24.11";
+    system.stateVersion = "25.11";
   };
 
   # Helper to create a NixOS evaluation with deferred-apps
@@ -57,9 +57,11 @@ let
 
   # Minimal Home Manager config boilerplate for module tests
   minimalHomeConfig = {
-    home.username = "testuser";
-    home.homeDirectory = "/home/testuser";
-    home.stateVersion = "24.11";
+    home = {
+      username = "testuser";
+      homeDirectory = "/home/testuser";
+      stateVersion = "25.11";
+    };
   };
 
   # Helper to create a Home Manager evaluation with deferred-apps
