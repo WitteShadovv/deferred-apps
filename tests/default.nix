@@ -7,7 +7,8 @@
 #
 # Test Categories:
 #   internal     - Internal function tests (capitalize, isPackageUnfree)
-#   library      - mkDeferredApp parameter tests
+#   library      - mkDeferredApp parameter tests (pname mode)
+#   package-mode - mkDeferredApp with direct package references
 #   batch        - mkDeferredApps, mkDeferredAppsFrom, mkDeferredAppsAdvanced
 #   collision    - Terminal command collision detection
 #   module       - NixOS module integration tests
@@ -72,6 +73,7 @@ let
   # Import all test modules
   internalTests = import ./internal.nix { inherit helpers; };
   libraryTests = import ./library.nix { inherit helpers; };
+  packageModeTests = import ./package-mode.nix { inherit pkgs lib helpers; };
   batchTests = import ./batch.nix { inherit pkgs helpers; };
   collisionTests = import ./collision.nix { inherit lib helpers; };
   moduleTests = import ./module.nix { inherit pkgs lib helpers; };
@@ -88,6 +90,7 @@ in
 # Combine all test modules
 // internalTests
 // libraryTests
+// packageModeTests
 // batchTests
 // collisionTests
 // moduleTests

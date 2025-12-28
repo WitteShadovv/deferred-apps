@@ -225,6 +225,15 @@ jobs:
           done
           echo "✓ All meta and integration tests passed"
 
+      - name: Run package mode tests
+        run: |
+          echo "Running package mode tests..."
+          for check in $(nix eval .#checks.x86_64-linux --apply 'checks: builtins.attrNames checks' --json | jq -r '.[]' | grep '^pkg-'); do
+            echo "  Building: $check"
+            nix build ".#checks.x86_64-linux.$check" --print-build-logs
+          done
+          echo "✓ All package mode tests passed"
+
   # ===========================================================================
   # Summary job - provides clear status
   # ===========================================================================
