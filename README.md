@@ -319,8 +319,8 @@ environment.systemPackages =
 ```nix
 let
   deferred-apps = import (fetchTarball {
-    url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.2.0.tar.gz";
-    sha256 = "1r8arg8aclq1fwg6rfksbrs7jrgzi2fkbm4aibnif5mcnqxnijbi";
+    url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.3.0.tar.gz";
+    sha256 = "17afqfj95bbpy55vgs20m27p6x0irkyn74l1qka1yc7hwkzc3y3i";
   });
 in {
   imports = [ deferred-apps.nixosModules.default ];
@@ -334,8 +334,8 @@ in {
 ```nix
 let
   deferred-apps = import (fetchTarball {
-    url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.2.0.tar.gz";
-    sha256 = "1r8arg8aclq1fwg6rfksbrs7jrgzi2fkbm4aibnif5mcnqxnijbi";
+    url = "https://github.com/WitteShadovv/deferred-apps/archive/refs/tags/v0.3.0.tar.gz";
+    sha256 = "17afqfj95bbpy55vgs20m27p6x0irkyn74l1qka1yc7hwkzc3y3i";
   });
 in {
   imports = [ deferred-apps.homeManagerModules.default ];
